@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Live2DPet.Rendering</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Live2DPet.Core\Live2DPet.Core.csproj" />
+    <ProjectReference Include="..\..\thirdparty\Live2DCSharpSDK\Live2DCSharpSDK.OpenTK\Live2DCSharpSDK.OpenTK.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,61 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.7.33711.374
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Live2DCSharpSDK.Framework", "Live2DCSharpSDK.Framework\Live2DCSharpSDK.Framework.csproj", "{43B975EE-EC7E-4667-945A-245ECC4F5AF5}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Live2DCSharpSDK.App", "Live2DCSharpSDK.App\Live2DCSharpSDK.App.csproj", "{1D854B32-EC36-46A1-A9A2-2B06E9421338}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Live2DCSharpSDK.OpenTK", "Live2DCSharpSDK.OpenTK\Live2DCSharpSDK.OpenTK.csproj", "{8107A4BA-F80E-47F7-AF7B-4F9467101E93}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Live2DCSharpSDK.Avalonia", "Live2DCSharpSDK.Avalonia\Live2DCSharpSDK.Avalonia.csproj", "{7A072212-FDAC-46D1-9B78-6D37BB5F57D1}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Windows", "Windows", "{C1A91469-B605-4DDC-964A-137C82ABEF7B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{48E55F3F-9D1F-4D46-A2B6-58608590A8F6}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Live2DCSharpSDK.WPF", "Live2DCSharpSDK.WPF\Live2DCSharpSDK.WPF.csproj", "{31F12B93-E865-43F0-9967-00733D967F76}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{43B975EE-EC7E-4667-945A-245ECC4F5AF5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{43B975EE-EC7E-4667-945A-245ECC4F5AF5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{43B975EE-EC7E-4667-945A-245ECC4F5AF5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{43B975EE-EC7E-4667-945A-245ECC4F5AF5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1D854B32-EC36-46A1-A9A2-2B06E9421338}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1D854B32-EC36-46A1-A9A2-2B06E9421338}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1D854B32-EC36-46A1-A9A2-2B06E9421338}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1D854B32-EC36-46A1-A9A2-2B06E9421338}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8107A4BA-F80E-47F7-AF7B-4F9467101E93}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8107A4BA-F80E-47F7-AF7B-4F9467101E93}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8107A4BA-F80E-47F7-AF7B-4F9467101E93}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8107A4BA-F80E-47F7-AF7B-4F9467101E93}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7A072212-FDAC-46D1-9B78-6D37BB5F57D1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7A072212-FDAC-46D1-9B78-6D37BB5F57D1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7A072212-FDAC-46D1-9B78-6D37BB5F57D1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7A072212-FDAC-46D1-9B78-6D37BB5F57D1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{31F12B93-E865-43F0-9967-00733D967F76}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{31F12B93-E865-43F0-9967-00733D967F76}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{31F12B93-E865-43F0-9967-00733D967F76}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{31F12B93-E865-43F0-9967-00733D967F76}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{8107A4BA-F80E-47F7-AF7B-4F9467101E93} = {C1A91469-B605-4DDC-964A-137C82ABEF7B}
+		{7A072212-FDAC-46D1-9B78-6D37BB5F57D1} = {C1A91469-B605-4DDC-964A-137C82ABEF7B}
+		{31F12B93-E865-43F0-9967-00733D967F76} = {C1A91469-B605-4DDC-964A-137C82ABEF7B}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {53197E4D-3AAB-4AC2-91AF-DDBB326E65FD}
+	EndGlobalSection
+EndGlobal

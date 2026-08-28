@@ -1,0 +1,16 @@
+{
+  "defaults": {
+    "AngleX":     { "id": "ParamAngleX",     "range": [-30, 30] },
+    "AngleY":     { "id": "ParamAngleY",     "range": [-30, 30] },
+    "AngleZ":     { "id": "ParamAngleZ",     "range": [-30, 30] },
+    "BodyAngleX": { "id": "ParamBodyAngleX", "range": [-10, 10] },
+    "EyeBallX":   { "id": "ParamEyeBallX",   "range": [-1, 1] },
+    "EyeBallY":   { "id": "ParamEyeBallY",   "range": [-1, 1] },
+    "Breath":     { "id": "ParamBreath",     "range": [0, 1] }
+  },
+  "fallbacks": {
+    "AngleX":   ["ParamHeadAngleX"],
+    "EyeBallX": ["ParamEyeLOpen", "ParamEyeROpen"],
+    "EyeBallY": ["ParamEyeLOpen", "ParamEyeROpen"]
+  }
+}

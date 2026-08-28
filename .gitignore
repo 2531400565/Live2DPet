@@ -1,0 +1,19 @@
+# 构建产物（每次编译都会重新生成，无需入库）
+bin/
+obj/
+.vs/
+
+# 本机发布输出（self-contained 发布包体积大且可重建）
+**/publish/
+
+# 第三方 SDK 的构建产物
+thirdparty/**/bin/
+thirdparty/**/obj/
+
+# WorkBuddy 内部数据（Agent 记忆，不属于项目源码）
+.workbuddy/
+
+# OS / 编辑器临时文件
+Thumbs.db
+.DS_Store
+*.user
