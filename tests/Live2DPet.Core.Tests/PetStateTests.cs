@@ -73,8 +73,8 @@ public class PetStateTests
     [Fact]
     public void AddExperience_NotEnoughForMultiLevel_KeepsRemainder()
     {
-        var s = new PetState();   // Lv.1 需50 → Lv.2 需100
-        Assert.False(s.AddExperience(120));   // 只升 1 级，余 70
+        var s = new PetState();   // Lv.1→2 需 50，Lv.2→3 需 100
+        Assert.True(s.AddExperience(120));    // 升了 1 级（返回 true），余 70 保留
         Assert.Equal(2, s.Level);
         Assert.Equal(70, s.Experience);
     }
