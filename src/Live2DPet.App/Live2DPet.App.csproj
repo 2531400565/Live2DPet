@@ -9,9 +9,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <!-- 版本与文件元数据：右键 exe 属性/版本信息 + About 面板读取 -->
-    <Version>1.1.0</Version>
-    <AssemblyVersion>1.1.0.0</AssemblyVersion>
-    <FileVersion>1.1.0.0</FileVersion>
+    <Version>1.2.0</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
     <Authors>时可凡</Authors>
     <Product>Live2D 桌宠 Live2DPet</Product>
     <Description>Live2D 桌面宠物：透明置顶实时渲染、互动养成、成就签到、节日彩蛋、一键截图与崩溃自启。</Description>

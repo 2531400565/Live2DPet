@@ -6,6 +6,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Live2DPet.Core;
 using Live2DPet.Core.Interaction;
@@ -13,6 +14,8 @@ using Live2DPet.Core.Models;
 using Live2DPet.Core.Mouse;
 using Live2DPet.Core.Pet;
 using Live2DPet.Core.Settings;
+using Live2DPet.Core.Update;
+using Live2DPet.App.Update;
 using Live2DPet.Platform;
 using Live2DPet.Platform.Input;
 using Live2DPet.Platform.Native;
@@ -32,6 +35,7 @@ public sealed class PetApplication : IDisposable
     // 隐藏宿主窗：用于把后台线程（钩子线程 / 宠物窗口线程）回调 marshal 回 UI 线程，
     // 同时作为全局快捷键（Ctrl+`）的消息接收窗口
     private readonly HiddenHostForm _uiHost;
+    private readonly UpdateService _updateService = new();
     private System.Windows.Forms.Timer? _renderTimer;
     private Stopwatch? _renderStopwatch;
     private double _lastRender;
@@ -215,6 +219,9 @@ public sealed class PetApplication : IDisposable
         _tray.ScreenshotRequested += (_, _) => Ui(TakeScreenshot);
         _tray.AboutRequested += (_, _) => ShowAbout();
         _tray.OpenLogsRequested += (_, _) => AppLog.OpenFolder();
+        _tray.UpdateRequested += (_, _) => ShowUpdate();
+        _tray.BalloonClicked += (_, _) => ShowUpdate();
+        _updateService.ShutdownRequested += () => Application.Exit();
         _tray.SetClickThroughChecked(_settings.ClickThrough);
         _tray.SetKeyboardInteractionChecked(_settings.KeyboardInteraction);
         _tray.SetGazeChecked(_settings.GazeFollow);
@@ -302,6 +309,19 @@ public sealed class PetApplication : IDisposable
         _petState.LastSeen = DateTime.UtcNow;
         PetStateStore.Save(_petState, PetStatePath);
         Log("init: done");
+
+        // 启动静默检查更新（仅弹气泡提示，不自动下载/重启）
+        if (_settings.CheckUpdateOnStartup)
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var info = await _updateService.CheckAsync();
+                    if (info != null && _updateService.NeedsUpdate(info))
+                        Ui(() => _tray.ShowBalloon("发现新版本 " + info.Version, "点击此处查看并更新"));
+                }
+                catch { /* 检查更新失败不影响主功能 */ }
+            });
     }
 
     /// <summary>消息循环启动后加载模型并套缩放/表情。</summary>
@@ -1314,6 +1334,32 @@ public sealed class PetApplication : IDisposable
             BackupConfig,
             RestoreConfig);
         form.ShowDialog(_uiHost);
+    }
+
+    /// <summary>手动检查更新（托盘"检查更新…"或点击更新气泡）。manual=true 时无更新/失败会弹提示。</summary>
+    private void ShowUpdate()
+    {
+        _ = CheckAndShowUpdateAsync(manual: true);
+    }
+
+    private async Task CheckAndShowUpdateAsync(bool manual)
+    {
+        var info = await _updateService.CheckAsync();
+        Ui(() =>
+        {
+            if (info == null)
+            {
+                if (manual) MessageBox.Show("检查更新失败（网络错误）。", "Live2DPet", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (!_updateService.NeedsUpdate(info))
+            {
+                if (manual) MessageBox.Show("已是最新版本。", "Live2DPet", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            using var form = new UpdateForm(_updateService, info);
+            form.ShowDialog(_uiHost);
+        });
     }
 
     private static string ConfigDir => Path.Combine(AppContext.BaseDirectory, "config");

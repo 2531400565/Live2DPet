@@ -61,6 +61,7 @@ public sealed class SettingsForm : Form
     private readonly CheckBox _breakCheck = new() { Left = 12, Top = 36, AutoSize = true, Text = "休息/喝水提醒" };
     private readonly CheckBox _snapCheck = new() { Left = 12, Top = 64, AutoSize = true, Text = "拖到边缘自动贴边" };
     private readonly CheckBox _autoHideCheck = new() { Left = 12, Top = 92, AutoSize = true, Text = "贴边后自动半隐藏" };
+    private readonly CheckBox _updateCheck = new() { Left = 12, Top = 120, AutoSize = true, Text = "启动时自动检查更新" };
 
     private readonly Button _closeButton = new() { Text = "关闭", Left = 300, Top = 440, Width = 80, Height = 32 };
 
@@ -159,6 +160,7 @@ public sealed class SettingsForm : Form
         pageRemind.Controls.Add(_breakCheck);
         pageRemind.Controls.Add(_snapCheck);
         pageRemind.Controls.Add(_autoHideCheck);
+        pageRemind.Controls.Add(_updateCheck);
 
         Controls.Add(new Label
         {
@@ -222,6 +224,7 @@ public sealed class SettingsForm : Form
         _breakCheck.Checked = settings.BreakReminder;
         _snapCheck.Checked = settings.SnapToEdge;
         _autoHideCheck.Checked = settings.AutoHide;
+        _updateCheck.Checked = settings.CheckUpdateOnStartup;
 
         UpdateLabels();
 
@@ -276,6 +279,7 @@ public sealed class SettingsForm : Form
         _breakCheck.CheckedChanged += (_, _) => { if (_loading) return; _settings.BreakReminder = _breakCheck.Checked; _apply(); };
         _snapCheck.CheckedChanged += (_, _) => { if (_loading) return; _settings.SnapToEdge = _snapCheck.Checked; _apply(); };
         _autoHideCheck.CheckedChanged += (_, _) => { if (_loading) return; _settings.AutoHide = _autoHideCheck.Checked; _apply(); };
+        _updateCheck.CheckedChanged += (_, _) => { if (_loading) return; _settings.CheckUpdateOnStartup = _updateCheck.Checked; _apply(); };
         _resetButton.Click += (_, _) =>
         {
             if (_loading) return;

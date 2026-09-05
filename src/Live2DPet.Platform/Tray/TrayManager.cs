@@ -50,6 +50,8 @@ public sealed class TrayManager : IDisposable
     public event EventHandler? ToggleAutoStartRequested;
     public event EventHandler<string>? ExpressionSelected;
     public event EventHandler? OpenLogsRequested;   // 打开日志目录（排查用）
+    public event EventHandler? UpdateRequested;     // 检查更新
+    public event EventHandler? BalloonClicked;      // 点击托盘气泡（如"发现新版本"提示）
 
     public TrayManager()
     {
@@ -63,6 +65,7 @@ public sealed class TrayManager : IDisposable
         _hideItem = new ToolStripMenuItem("隐藏桌宠 (Ctrl+`)", null, (_, _) => ToggleHideRequested?.Invoke(this, EventArgs.Empty));
         _menu.Items.Add(_hideItem);
         _menu.Items.Add(new ToolStripMenuItem("设置...", null, (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty)));
+        _menu.Items.Add(new ToolStripMenuItem("检查更新...", null, (_, _) => UpdateRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripMenuItem("养成面板...", null, (_, _) => StatusRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripMenuItem("截图桌宠", null, (_, _) => ScreenshotRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripSeparator());
@@ -101,6 +104,7 @@ public sealed class TrayManager : IDisposable
 
         _notifyIcon.ContextMenuStrip = _menu;
         _notifyIcon.DoubleClick += (_, _) => ShowPetRequested?.Invoke(this, EventArgs.Empty);
+        _notifyIcon.BalloonTipClicked += (_, _) => BalloonClicked?.Invoke(this, EventArgs.Empty);
 
         // 菜单每次显示（无论托盘右键还是宠物右键触发）→ 挂低级鼠标钩子；
         // 关闭 → 摘钩。覆盖两条入口，统一解决"关不掉"问题。

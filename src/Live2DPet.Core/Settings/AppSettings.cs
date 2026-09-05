@@ -92,4 +92,7 @@ public class AppSettings
 
     /// <summary>崩溃后自动重启（最多重试，避免死循环）。</summary>
     public bool CrashAutoRestart { get; set; } = true;
+
+    /// <summary>启动时自动检查更新（静默；发现新版本仅弹气泡提示，不自动下载）。</summary>
+    public bool CheckUpdateOnStartup { get; set; } = true;
 }
