@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Live2DPet.Core;
 using Live2DPet.Core.Interaction;
+using Live2DPet.Core.Live2D;
 using Live2DPet.Core.Models;
 using Live2DPet.Core.Mouse;
 using Live2DPet.Core.Pet;
@@ -27,10 +28,12 @@ namespace Live2DPet.App;
 
 /// <summary>
 /// 桌宠应用核心（纯 WinForms，无 WPF）。
-/// 职责：加载设置/模型 → 创建 Live2D 引擎 + 分层窗口 + 托盘 + 键盘钩子，
-/// 用 System.Windows.Forms.Timer 驱动每帧渲染，并处理所有互动事件。
+/// 职责：组合根——加载设置/模型 → 创建 Live2D 引擎 + 分层窗口 + 托盘 + 键盘钩子，
+/// 用 System.Windows.Forms.Timer 驱动每帧渲染，并处理窗口/输入/电源等宿主级事件。
+/// 互动养成反应链与低频周期调度分别委托给 <see cref="PetInteractionService"/>
+/// 与 <see cref="PetScheduler"/>（二者经 <see cref="IPetHost"/> 门面访问宿主能力）。
 /// </summary>
-public sealed class PetApplication : IDisposable
+public sealed class PetApplication : IDisposable, IPetHost
 {
     // 隐藏宿主窗：用于把后台线程（钩子线程 / 宠物窗口线程）回调 marshal 回 UI 线程，
     // 同时作为全局快捷键（Ctrl+`）的消息接收窗口
@@ -46,6 +49,10 @@ public sealed class PetApplication : IDisposable
     private KeyboardMonitor? _keyboard;
     private KeyReactionController? _keyReaction;
 
+    // v1.3 拆分：互动/养成反应链与低频周期调度各自成服务，宿主只做装配与宿主级事件
+    private PetInteractionService _interaction = null!;
+    private PetScheduler? _scheduler;
+
     private AppSettings _settings = new();
     private List<ModelInfo> _models = new();
     private ModelInfo? _currentModel;
@@ -56,19 +63,9 @@ public sealed class PetApplication : IDisposable
     private PetStatusForm? _statusForm;
     private BubbleWindow? _bubbleWindow;
     private SoundManager? _sound;
-    private System.Windows.Forms.Timer? _decayTimer;
 
-    // 待机随机动作：低频调度，空闲时偶发播放待机动作 + 萌系气泡
-    private System.Windows.Forms.Timer? _idleTimer;
-    private List<string> _idleMotionGroups = new();
-    private static readonly Random Rnd = new();
-
-    // 在线时长精确累计：记录上次记账时刻，按真实经过秒数累加（避免崩溃丢整分钟）
-    private DateTime _onlineStamp = DateTime.UtcNow;
-
-    // 离开检测（打盹待机）：用户长时间无键鼠操作 → 进入睡觉状态
-    private System.Windows.Forms.Timer? _sleepTimer;
-    private bool _sleeping;
+    // 当前模型适合待机的动作分组（模型枚举结果，切换模型后刷新）
+    private IReadOnlyList<string> _idleMotionGroups = Array.Empty<string>();
 
     private bool _clickThrough;
     private bool _keyboardEnabled = true;
@@ -144,13 +141,16 @@ public sealed class PetApplication : IDisposable
         // 养成状态：加载 + 离线衰减 + 气泡窗口（均须在 UI 线程）
         _petState = PetStateStore.Load(PetStatePath);
         _petState.ApplyOfflineDecay(DateTime.UtcNow);
-        _onlineStamp = DateTime.UtcNow;
         _bubbleWindow = new BubbleWindow();
         _sound = new SoundManager(Path.Combine(AppContext.BaseDirectory, "assets", "sounds"))
         {
             Enabled = _settings.SoundEnabled,
             Volume = _settings.Volume
         };
+
+        // 服务拆分（v1.3）：互动/养成反应链 + 低频周期调度；二者经 IPetHost 门面访问宿主
+        _interaction = new PetInteractionService(this);
+        _scheduler = new PetScheduler(this);
 
         _currentModel = ResolveModel();
         if (_currentModel == null)
@@ -242,27 +242,14 @@ public sealed class PetApplication : IDisposable
         _keyboard.KeyActed += OnKeyActed;
         _keyboard.Start();
 
-        // 8) 鼠标互动（点击/拖拽/双击/右键）→ 计分 + 反应 + 气泡
+        // 8) 鼠标互动（点击/拖拽/双击/右键）→ 交给互动服务计分 + 反应 + 气泡
         _petWindow.PetClicked += (region) => Ui(() => OnPetClick(region));
-        _petWindow.PetDragged += () => Ui(() => OnDragStart());
-        _petWindow.PetDoubleClicked += () => Ui(() => Interact("Tap@Body", 3, 2, PetDialogue.DoubleTapReplies));
+        _petWindow.PetDragged += () => Ui(() => _interaction.DragStart());
+        _petWindow.PetDoubleClicked += () => Ui(() => _interaction.Interact("Tap@Body", 3, 2, PetDialogue.DoubleTapReplies));
         _petWindow.PetMoved += () => Ui(OnPetMoved);
         _petWindow.PetRightClicked += (x, y) => Ui(() => _tray?.ShowMenuAt(x, y));
 
-        // 9) 状态衰减定时器（每分钟）+ 启动问候 / 离线欢迎回来
-        _decayTimer = new System.Windows.Forms.Timer { Interval = 60_000 };
-        _decayTimer.Tick += (_, _) => OnDecayTick();
-        _decayTimer.Start();
-
-        // 9.5) 待机随机动作调度器（低频，仅在空闲时偶发）
-        _idleTimer = new System.Windows.Forms.Timer { Interval = 20_000 };
-        _idleTimer.Tick += (_, _) => OnIdleTick();
-        _idleTimer.Start();
-
-        // 9.6) 离开检测：用户长时间无键鼠操作 → 进入"打盹"待机（每 10s 轮询一次空闲时长）
-        _sleepTimer = new System.Windows.Forms.Timer { Interval = 10_000 };
-        _sleepTimer.Tick += (_, _) => OnSleepCheck();
-        _sleepTimer.Start();
+        // 9) 状态衰减/待机动作/打盹 三个低频定时器已在 PetScheduler 内自启（见上）
 
         // 每日签到：本地日期跨天则累计天数 + 发奖励（好感/经验），同一天重复启动不重复发奖
         var loginReport = _petState.RecordDailyLogin(DateTime.Now);
@@ -272,8 +259,8 @@ public sealed class PetApplication : IDisposable
             int bondBefore = _petState.BondLevel;
             _petState.AddAffection(loginReport.RewardAffection);
             _petState.AddExperience(loginReport.RewardExp);
-            AnnounceLevelUp(lvBefore, bondBefore);  // 签到经验可能升级/羁绊提升 → 补提示
-            CheckAndAnnounceAchievements();     // 签到奖励也可能解锁成就
+            _interaction.AnnounceLevelUp(lvBefore, bondBefore);  // 签到经验可能升级/羁绊提升 → 补提示
+            _interaction.CheckAndAnnounceAchievements();     // 签到奖励也可能解锁成就
         }
 
         // 启动问候 vs 离线欢迎回来 vs 每日签到 vs 节日/生日：节日/生日最优先；离开较久弹"欢迎回来"；否则今天刚签到弹签到气泡
@@ -292,8 +279,8 @@ public sealed class PetApplication : IDisposable
             int wbExp = Math.Clamp((int)sinceLast.TotalHours, 1, 20);
             _petState.AddAffection(wbAff);
             _petState.AddExperience(wbExp);
-            AnnounceLevelUp(lvBefore, bondBefore);  // 离线补偿经验可能升级/羁绊提升 → 补提示
-            CheckAndAnnounceAchievements();     // 离线累计的互动/在线也可能解锁成就
+            _interaction.AnnounceLevelUp(lvBefore, bondBefore);  // 离线补偿经验可能升级/羁绊提升 → 补提示
+            _interaction.CheckAndAnnounceAchievements();     // 离线累计的互动/在线也可能解锁成就
             greeting = PetDialogue.WelcomeBack(sinceLast);
         }
         else if (loginReport.IsNewDay)
@@ -398,15 +385,7 @@ public sealed class PetApplication : IDisposable
             _lastInteraction = DateTime.UtcNow;
             var group = _keyReaction?.Consider(e.VirtualKey, DateTime.UtcNow);
             if (group != null)
-            {
-                _live2D?.PlayReaction(group);
-                SetMood(PetMood.Happy, 1.0);   // 键盘互动 → 开心一下
-                // 键盘互动 +少量好感/经验（不弹气泡，避免刷屏）
-                _petState.AddAffection(1);
-                _petState.AddExperience(1);
-                AfterInteraction();
-                PetStateStore.Save(_petState, PetStatePath);
-            }
+                _interaction.KeyboardReaction(group);   // 播动作 + 微量好感/经验 + 记账（不弹气泡）
         });
     }
 
@@ -552,7 +531,7 @@ public sealed class PetApplication : IDisposable
         _suspended = false;
         // 关键：不把休眠的几小时算进 dt，否则引擎一帧推进几小时，动画与状态全部跳变
         if (_renderStopwatch != null) _lastRender = _renderStopwatch.Elapsed.TotalSeconds;
-        _onlineStamp = DateTime.UtcNow;      // 休眠时长不计入在线时长统计
+        _scheduler?.ResetOnlineStamp();      // 休眠时长不计入在线时长统计
         _blankSince = DateTime.MinValue;     // 唤醒瞬间的空帧不计入故障判定
         _lastBlankCheck = DateTime.UtcNow;
         _live2D?.ResetFaultCount();          // 唤醒时的一次抖动不算故障
@@ -565,7 +544,7 @@ public sealed class PetApplication : IDisposable
     /// <summary>系统时间被大幅修改（手动改表 / 域同步 / 从休眠恢复后校时）：重置在线计时基准。</summary>
     private void OnSystemTimeChanged()
     {
-        _onlineStamp = DateTime.UtcNow;
+        _scheduler?.ResetOnlineStamp();
         Log("[system] 系统时间变化：在线计时基准已重置");
     }
 
@@ -714,11 +693,11 @@ public sealed class PetApplication : IDisposable
         switch (region)
         {
             case PetLayeredWindow.HitRegion.Head:
-                Interact("Tap", 3, 2, PetDialogue.HeadRubLines); break;
+                _interaction.Interact("Tap", 3, 2, PetDialogue.HeadRubLines); break;
             case PetLayeredWindow.HitRegion.Body:
-                Interact("Flick", 2, 1, PetDialogue.PokeBodyLines); break;
+                _interaction.Interact("Flick", 2, 1, PetDialogue.PokeBodyLines); break;
             default:
-                Interact("Tap@Body", 2, 1, PetDialogue.TouchFeetLines); break;
+                _interaction.Interact("Tap@Body", 2, 1, PetDialogue.TouchFeetLines); break;
         }
     }
 
@@ -892,114 +871,10 @@ public sealed class PetApplication : IDisposable
         }
     }
 
-    /// <summary>设置临时情绪（覆盖基础情绪），seconds 秒后回落到由养成状态推导的基础情绪。</summary>
-    private void SetMood(PetMood mood, double seconds)
-    {
-        _mood = mood;
-        _moodUntil = DateTime.UtcNow + TimeSpan.FromSeconds(seconds);
-    }
-
-    /// <summary>一次互动：播动作 + 计好感/经验 + 弹气泡（升级/亲密度提升/里程碑解锁优先显示）。</summary>
-    private void Interact(string group, int affection, int exp, string[] replies)
-    {
-        _lastInteraction = DateTime.UtcNow;
-        SetMood(PetMood.Happy, 1.5);   // 被摸/被戳 → 开心一会儿
-        _live2D?.PlayReaction(group);
-        _sound?.Play(group.Equals("Flick", StringComparison.OrdinalIgnoreCase) ? "pop" : "tap");
-        int levelBefore = _petState.Level;
-        bool affectionUp = _petState.AddAffection(affection);
-        bool leveled = _petState.AddExperience(exp);
-        Say(PetDialogue.PickReaction(replies, _petState.Level));
-        if (affectionUp) Say(PetDialogue.AffectionUp(_petState.AffectionName));
-        if (leveled)
-        {
-            if (_petState.Level > levelBefore)
-            {
-                Say(PetDialogue.LevelUp(_petState.Level, _petState.StageName));
-                _sound?.Play("levelup");
-            }
-            else   // 满级后：羁绊等级提升
-            {
-                Say(PetDialogue.BondUp(_petState.BondLevel, _petState.BondName));
-                _sound?.Play("levelup");
-            }
-        }
-        SayLevelupUnlocks(levelBefore);
-        AfterInteraction();
-        PetStateStore.Save(_petState, PetStatePath);
-    }
-
-    /// <summary>升级后若跨过里程碑等级（3/5/7/10），补一条"解锁"提示。</summary>
-    private void SayLevelupUnlocks(int levelBefore)
-    {
-        for (int lv = levelBefore + 1; lv <= _petState.Level; lv++)
-        {
-            if (PetState.IsMilestoneLevel(lv))
-                Say(PetDialogue.MilestoneUnlock(lv));
-        }
-    }
-
-    /// <summary>互动后统一记账：累计互动次数 + 检测解锁成就（新解锁弹气泡 + 音效 + 保存）。</summary>
-    private void AfterInteraction()
-    {
-        _petState.TotalInteractions++;
-        CheckAndAnnounceAchievements();
-    }
-
-    /// <summary>若签到/离线补偿/成就奖励后发生升级或羁绊提升，补弹对应提示（含音效）。</summary>
-    private void AnnounceLevelUp(int levelBefore, int bondBefore)
-    {
-        if (_petState.Level > levelBefore)
-        {
-            Say(PetDialogue.LevelUp(_petState.Level, _petState.StageName));
-            _sound?.Play("levelup");
-            SayLevelupUnlocks(levelBefore);
-        }
-        else if (_petState.BondLevel > bondBefore)
-        {
-            Say(PetDialogue.BondUp(_petState.BondLevel, _petState.BondName));
-            _sound?.Play("levelup");
-        }
-    }
-
-    /// <summary>检测并播报新解锁的成就（弹气泡 + 音效 + 发放奖励 + 保存）。
-    /// 不计入用户互动次数（供启动期签到/离线补偿复用）。</summary>
-    private void CheckAndAnnounceAchievements()
-    {
-        var newly = _petState.CheckAchievements();
-        int lvBefore = _petState.Level;
-        int bondBefore = _petState.BondLevel;
-        int totalAff = 0, totalExp = 0;
-        foreach (var a in newly)
-        {
-            if (a.RewardAffection > 0) totalAff += a.RewardAffection;
-            if (a.RewardExp > 0) totalExp += a.RewardExp;
-            Say($"成就解锁「{a.Name}」：{a.Desc}{a.RewardText}");
-            _sound?.Play("levelup");
-        }
-        if (newly.Count > 0)
-        {
-            if (totalAff > 0) _petState.AddAffection(totalAff);
-            if (totalExp > 0) _petState.AddExperience(totalExp);
-            AnnounceLevelUp(lvBefore, bondBefore);  // 奖励可能触发升级或羁绊提升
-            SayLevelupUnlocks(lvBefore);
-            PetStateStore.Save(_petState, PetStatePath);
-        }
-    }
-
-    /// <summary>拖拽开始（被拎起来瞬间）：受惊吓动作 + 惊吓台词 + 短暂"受惊"情绪。</summary>
-    private void OnDragStart()
-    {
-        _lastInteraction = DateTime.UtcNow;
-        SetMood(PetMood.Surprised, 1.3);
-        _live2D?.PlayReaction("Flick");   // 受惊吓动作
-        _sound?.Play("startle");
-        Say(PetDialogue.Pick(PetDialogue.StartleLines));
-    }
-
     /// <summary>在角色头顶弹文字气泡（须在 UI 线程调用）。锚点改为角色头顶（基于帧 alpha 实时扫描），
-    /// 气泡三角指向人物头部，无论角色在画布哪个位置、动画中如何摆动都对齐。</summary>
-    private void Say(string text)
+    /// 气泡三角指向人物头部，无论角色在画布哪个位置、动画中如何摆动都对齐。
+    /// 作为 IPetHost.Say 的实现，供互动/调度服务调用。</summary>
+    public void Say(string text)
     {
         if (_bubbleWindow == null || _petWindow == null) return;
         if (_petWindow.IsHidden) return;   // 彻底隐藏时不弹气泡（避免藏起来还冒字）
@@ -1014,162 +889,20 @@ public sealed class PetApplication : IDisposable
         _bubbleWindow.ShowBubble(text, cx, headTop - 4);
     }
 
-    /// <summary>当前是否处于免打扰（专注）时段：支持跨午夜区间（如 23:00 → 08:00）。</summary>
-    private bool IsDndNow()
+    /// <summary>环境气泡（待机碎碎念/报时/休息提醒/低状态提醒等）：免打扰时段内抑制。
+    /// 作为 IPetHost.SayAmbient 的实现，供互动/调度服务调用。</summary>
+    public void SayAmbient(string text)
     {
-        if (!_settings.DndEnabled) return false;
-        int now = DateTime.Now.Hour * 60 + DateTime.Now.Minute;
-        int s = _settings.DndStart, e = _settings.DndEnd;
-        if (s == e) return false;
-        return s < e ? (now >= s && now < e) : (now >= s || now < e);
-    }
-
-    /// <summary>环境气泡（待机碎碎念/报时/休息提醒/低状态提醒等）：免打扰时段内抑制。</summary>
-    private void SayAmbient(string text)
-    {
-        if (IsDndNow()) return;
+        if (DndClock.IsActive(_settings, DateTime.Now)) return;
         Say(text);
     }
 
-    /// <summary>每分钟状态衰减 + 低状态提醒 + 整点/半点报时 + 休息提醒。</summary>
-    private void OnDecayTick()
-    {
-        if (_disposed) return;
-        bool wasHungry = _petState.IsHungry, wasPlay = _petState.WantsPlay, wasDirty = _petState.IsDirty;
-        _petState.Decay(1.0);
-        // 在线时长按真实经过秒数累加（精确，避免崩溃丢整分钟）
-        var now = DateTime.UtcNow;
-        long delta = (long)(now - _onlineStamp).TotalSeconds;
-        if (delta > 0) _petState.TotalOnlineSeconds += delta;
-        _onlineStamp = now;
-
-        if (!wasHungry && _petState.IsHungry) SayAmbient(PetDialogue.Pick(PetDialogue.HungryLines));
-        else if (!wasPlay && _petState.WantsPlay) SayAmbient(PetDialogue.Pick(PetDialogue.WantsPlayLines));
-        else if (!wasDirty && _petState.IsDirty) SayAmbient(PetDialogue.Pick(PetDialogue.DirtyLines));
-        _petState.LastSeen = DateTime.UtcNow;   // 周期刷新，保证下次启动计算离线时长准确
-        PetStateStore.Save(_petState, PetStatePath);
-
-        ChimeIfDue(DateTime.Now);
-        UpdateBreakReminder();
-    }
-
-    /// <summary>枚举模型里适合做"待机"的动作分组：优先 Idle，否则取所有非互动分组（Tap/TapBody/Flick…）。</summary>
+    /// <summary>枚举模型里适合做"待机"的动作分组：优先 Idle，否则取所有非互动分组（Tap/TapBody/Flick…）。
+    /// 纯选择逻辑在 Core.IdleMotionSelector，这里只负责触发刷新（启动/换模型时）。</summary>
     private void RefreshIdleGroups()
     {
         var all = _live2D?.AvailableMotionGroups ?? Array.Empty<string>();
-        var interaction = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "Tap", "TapBody", "Tap@Body", "Flick", "PinchIn", "PinchOut", "Pinch", "Shake"
-        };
-        var idle = all.Where(g => g.Equals("Idle", StringComparison.OrdinalIgnoreCase)).ToList();
-        if (idle.Count == 0)
-            idle = all.Where(g => !interaction.Contains(g)).ToList();
-        _idleMotionGroups = idle;
-    }
-
-    /// <summary>待机随机动作：低频触发（每次重新随机间隔，避免规律感）。
-    /// 仅在空闲（近期无互动、未在拖拽、非半隐藏离屏）时偶发播放一个待机动作，并小概率配一句萌系碎碎念。
-    /// 普通优先级，绝不打断用户的互动反应。</summary>
-    private void OnIdleTick()
-    {
-        if (_disposed || _live2D == null || _idleTimer == null) return;
-        _idleTimer.Interval = 20_000 + Rnd.Next(25_000);   // 下次 20~45s
-
-        // 打盹中：偶尔冒一句睡意，不做随机动作，避免吵到用户
-        if (_sleeping)
-        {
-            if (Rnd.Next(100) < 25) SayAmbient(PetDialogue.Pick(PetDialogue.SleepLines));
-            return;
-        }
-
-        bool idle = (DateTime.UtcNow - _lastInteraction) > TimeSpan.FromSeconds(6)
-                    && (_petWindow == null || (!_petWindow.IsHidden && !_petWindow.IsDragging && (!_petWindow.IsDocked || _petWindow.IsPeeked)));
-        if (!idle || _idleMotionGroups.Count == 0) return;
-
-        if (Rnd.Next(100) < 60)   // 60% 概率真的做待机动作，其余时间安静歇着
-        {
-            _live2D.PlayIdleMotion(_idleMotionGroups);
-            if (Rnd.Next(100) < 35)   // 偶尔碎碎念，按状态"蔫/活泼"更有人味
-                SayAmbient(PickIdleLine());
-        }
-    }
-
-    /// <summary>按宠物当前状态选待机碎碎念：状态差→蔫，状态好→活泼，中等→普通。</summary>
-    private string PickIdleLine()
-    {
-        if (_petState.IsHungry || _petState.WantsPlay || _petState.IsDirty)
-            return PetDialogue.Pick(PetDialogue.LowStateLines);
-        if (_petState.Satiety >= 70 && _petState.Mood >= 70 && _petState.Cleanliness >= 70)
-            return PetDialogue.Pick(PetDialogue.HappyIdleLines);
-        return PetDialogue.Pick(PetDialogue.IdleLines);
-    }
-
-    private DateTime _lastChime = DateTime.MinValue;
-
-    /// <summary>整点/半点报时（tick 约每分钟一次，命中 minute==0/30 时弹气泡）。</summary>
-    private void ChimeIfDue(DateTime now)
-    {
-        if (!_settings.ChimeEnabled) return;
-        if (now.Minute != 0 && now.Minute != 30) return;
-        if ((now - _lastChime).TotalMinutes < 50) return;
-        _lastChime = now;
-        if (now.Minute == 0) SayAmbient(PetDialogue.Chime(now.Hour));
-        else SayAmbient(PetDialogue.ChimeHalf(now.Hour));
-    }
-
-    private int _breakTickCount;
-    private const int BreakEveryTicks = 45;   // 约每 45 分钟提醒一次
-
-    private void UpdateBreakReminder()
-    {
-        if (!_settings.BreakReminder) { _breakTickCount = 0; return; }
-        if (++_breakTickCount < BreakEveryTicks) return;
-        _breakTickCount = 0;
-        SayAmbient(PetDialogue.Pick(PetDialogue.BreakReminders));
-    }
-
-    // ---- 离开检测（打盹待机）----
-    private void OnSleepCheck()
-    {
-        if (_disposed) return;
-        if (_settings.IdleSleepMinutes <= 0) { if (_sleeping) WakeUp(); return; }
-        bool idle = GetIdleMinutes() >= _settings.IdleSleepMinutes;
-        if (idle && !_sleeping) EnterSleep();
-        else if (!idle && _sleeping) WakeUp();
-    }
-
-    /// <summary>取系统空闲分钟数（距上次键鼠输入）。</summary>
-    private int GetIdleMinutes()
-    {
-        try
-        {
-            var li = new NativeMethods.LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<NativeMethods.LASTINPUTINFO>() };
-            if (NativeMethods.GetLastInputInfo(ref li))
-            {
-                uint now = unchecked((uint)Environment.TickCount);
-                uint idle = now - li.dwTime;   // 两者同属 GetTickCount 体系，减法天然处理回绕
-                return (int)(idle / 60000);
-            }
-        }
-        catch { }
-        return 0;
-    }
-
-    private void EnterSleep()
-    {
-        _sleeping = true;
-        _lastInteraction = DateTime.UtcNow;   // 睡觉期间不触发"近期互动"满帧
-        if (_idleMotionGroups.Count > 0) _live2D?.PlayIdleMotion(_idleMotionGroups);
-        SayAmbient(PetDialogue.Pick(PetDialogue.SleepLines));
-    }
-
-    private void WakeUp()
-    {
-        _sleeping = false;
-        _lastInteraction = DateTime.UtcNow;
-        SetMood(PetMood.Happy, 1.5);
-        _live2D?.PlayReaction("Tap");
-        Say(PetDialogue.Pick(PetDialogue.WakeLines));   // 醒来提示不受免打扰抑制（用户回来后的主动反馈）
+        _idleMotionGroups = IdleMotionSelector.Select(all);
     }
 
     // ---- 一键截图 / 分享 ----
@@ -1208,106 +941,17 @@ public sealed class PetApplication : IDisposable
         _petState = new PetState();
         _statusForm?.Close();
         _statusForm = null;
-        _onlineStamp = DateTime.UtcNow;
+        _scheduler?.ResetOnlineStamp();   // 新状态从此刻起算在线时长
         PetStateStore.Save(_petState, PetStatePath);
         Say("记忆清空啦，我们重新认识吧~");
         _sound?.Play("greet");
     }
 
-    private void DoFeed()
-    {
-        _lastInteraction = DateTime.UtcNow;
-        int affBefore = _petState.AffectionLevel;
-        int levelBefore = _petState.Level;
-        var r = _petState.Feed();
-        if (r == CareResult.Success)
-        {
-            SetMood(PetMood.Happy, 2.0);
-            _live2D?.PlayReaction("Tap");
-            _sound?.Play("eat");
-            Say(PetDialogue.PickReaction(PetDialogue.FeedReplies, _petState.Level));
-            if (_petState.AffectionLevel > affBefore)
-                Say(PetDialogue.AffectionUp(_petState.AffectionName));
-            if (_petState.Level > levelBefore)
-            { Say(PetDialogue.LevelUp(_petState.Level, _petState.StageName)); _sound?.Play("levelup"); }
-            SayLevelupUnlocks(levelBefore);
-            _petState.TotalFeeds++;
-            AfterInteraction();
-            PetStateStore.Save(_petState, PetStatePath);
-        }
-        else // CareResult.Full
-        {
-            _live2D?.PlayReaction("Tap");
-            Say(PetDialogue.Pick(PetDialogue.FullLines));
-        }
-    }
-
-    private void DoPlay()
-    {
-        _lastInteraction = DateTime.UtcNow;
-        int affBefore = _petState.AffectionLevel;
-        int levelBefore = _petState.Level;
-        var r = _petState.Play();
-        if (r == CareResult.Success)
-        {
-            SetMood(PetMood.Happy, 2.0);
-            _live2D?.PlayReaction("Flick");
-            _sound?.Play("play");
-            Say(PetDialogue.PickReaction(PetDialogue.PlayReplies, _petState.Level));
-            if (_petState.AffectionLevel > affBefore)
-                Say(PetDialogue.AffectionUp(_petState.AffectionName));
-            if (_petState.Level > levelBefore)
-            { Say(PetDialogue.LevelUp(_petState.Level, _petState.StageName)); _sound?.Play("levelup"); }
-            SayLevelupUnlocks(levelBefore);
-            _petState.TotalPlays++;
-            AfterInteraction();
-            PetStateStore.Save(_petState, PetStatePath);
-        }
-        else if (r == CareResult.Hungry)
-        {
-            _live2D?.PlayReaction("Tap");
-            Say(PetDialogue.Pick(PetDialogue.TooHungryToPlayLines));
-        }
-        else // CareResult.Tired
-        {
-            _live2D?.PlayReaction("Tap");
-            Say(PetDialogue.Pick(PetDialogue.PlayEnoughLines));
-        }
-    }
-
-    private void DoBathe()
-    {
-        _lastInteraction = DateTime.UtcNow;
-        int affBefore = _petState.AffectionLevel;
-        int levelBefore = _petState.Level;
-        var r = _petState.Bathe();
-        if (r == CareResult.Success)
-        {
-            SetMood(PetMood.Happy, 2.0);
-            _live2D?.PlayReaction("Tap@Body");
-            _sound?.Play("tap");
-            Say(PetDialogue.PickReaction(PetDialogue.BatheReplies, _petState.Level));
-            if (_petState.AffectionLevel > affBefore)
-                Say(PetDialogue.AffectionUp(_petState.AffectionName));
-            if (_petState.Level > levelBefore)
-            { Say(PetDialogue.LevelUp(_petState.Level, _petState.StageName)); _sound?.Play("levelup"); }
-            SayLevelupUnlocks(levelBefore);
-            _petState.TotalBaths++;
-            AfterInteraction();
-            PetStateStore.Save(_petState, PetStatePath);
-        }
-        else // CareResult.Clean
-        {
-            _live2D?.PlayReaction("Tap");
-            Say(PetDialogue.Pick(PetDialogue.CleanEnoughLines));
-        }
-    }
-
-    /// <summary>打开养成面板。</summary>
+    /// <summary>打开养成面板（喂食/陪玩/洗澡动作由互动服务执行）。</summary>
     private void ShowStatus()
     {
         if (_statusForm == null || _statusForm.IsDisposed)
-            _statusForm = new PetStatusForm(_petState, DoFeed, DoPlay, DoBathe);
+            _statusForm = new PetStatusForm(_petState, _interaction.Feed, _interaction.Play, _interaction.Bathe);
         _statusForm.Show();
         _statusForm.Activate();
     }
@@ -1420,7 +1064,7 @@ public sealed class PetApplication : IDisposable
     {
         _settings = SettingsStore.Load(SettingsPath);
         _petState = PetStateStore.Load(PetStatePath);
-        _onlineStamp = DateTime.UtcNow;
+        _scheduler?.ResetOnlineStamp();   // 新状态从此刻起算在线时长
         _clickThrough = _settings.ClickThrough;
         _keyboardEnabled = _settings.KeyboardInteraction;
         ApplySettings();
@@ -1432,6 +1076,42 @@ public sealed class PetApplication : IDisposable
         // 养成数据已换：关掉可能开着的旧面板，下次打开会重建
         _statusForm?.Close();
         _statusForm = null;
+    }
+
+    // ---- IPetHost 实现（互动/调度服务的宿主门面）----
+    // 注意活引用语义：以下 getter 每次都返回宿主当前字段值，
+    // 因此"重置养成/还原备份"替换 _petState 后，服务无需同步、自动拿到新实例。
+
+    public PetState State => _petState;
+    public AppSettings Settings => _settings;
+    public Live2DManager? Live2D => _live2D;
+    public SoundManager? Sound => _sound;
+    public bool IsDisposed => _disposed;
+
+    public DateTime LastInteraction
+    {
+        get => _lastInteraction;
+        set => _lastInteraction = value;
+    }
+
+    public IReadOnlyList<string> IdleMotionGroups
+    {
+        get => _idleMotionGroups;
+        set => _idleMotionGroups = value;
+    }
+
+    /// <summary>桌宠当前是否"可见可互动"：窗口不存在视为可互动（由服务侧兜底）。</summary>
+    public bool IsPetInteractive => _petWindow == null
+        || (!_petWindow.IsHidden && !_petWindow.IsDragging && (!_petWindow.IsDocked || _petWindow.IsPeeked));
+
+    /// <summary>把当前养成状态落盘。</summary>
+    public void SavePetState() => PetStateStore.Save(_petState, PetStatePath);
+
+    /// <summary>设置临时情绪（覆盖基础情绪），seconds 秒后回落到由养成状态推导的基础情绪。</summary>
+    public void SetTransientMood(PetMood mood, double seconds)
+    {
+        _mood = mood;
+        _moodUntil = DateTime.UtcNow + TimeSpan.FromSeconds(seconds);
     }
 
     public void Dispose()
@@ -1446,23 +1126,16 @@ public sealed class PetApplication : IDisposable
 
         SaveWindowPosition();
         SettingsStore.Save(_settings, SettingsPath);
-        // 收尾：补齐最后一段在线时长（精确到秒）
-        var fin = DateTime.UtcNow;
-        long fd = (long)(fin - _onlineStamp).TotalSeconds;
-        if (fd > 0) _petState.TotalOnlineSeconds += fd;
+        // 收尾：补齐最后一段在线时长（精确到秒），随后统一落盘
+        _scheduler?.FlushOnline();
         PetStateStore.Save(_petState, PetStatePath);
 
         // 注销全局快捷键（宿主窗即将销毁）
         try { NativeMethods.UnregisterHotKey(_uiHost.Handle, HotkeyId); } catch { }
 
-        _decayTimer?.Stop();
-        _decayTimer?.Dispose();
-        _idleTimer?.Stop();
-        _idleTimer?.Dispose();
-        _sleepTimer?.Stop();
-        _sleepTimer?.Dispose();
         _renderTimer?.Stop();
         _renderTimer?.Dispose();
+        _scheduler?.Dispose();
         _keyboard?.Dispose();
         _live2D?.Stop();
         _live2D?.Dispose();
