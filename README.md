@@ -1,5 +1,7 @@
 # Live2DPet · Live2D 桌面宠物
 
+[![build](https://github.com/2531400565/Live2DPet/actions/workflows/build.yml/badge.svg)](https://github.com/2531400565/Live2DPet/actions/workflows/build.yml)
+
 一个运行在 Windows 上的 **Live2D 桌宠**：一只半透明、置顶、会跟着鼠标转头、能被摸头、有情绪和养成系统的二次元小伙伴。基于 .NET 8 + WinForms + OpenTK，渲染层使用 [Live2DCSharpSDK](thirdparty/Live2DCSharpSDK)。
 
 ---

@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  publish:
+    name: Publish win-x64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish (framework-dependent)
+        run: dotnet publish src/Live2DPet.App/Live2DPet.App.csproj -c Release -r win-x64 --self-contained false
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Live2DPet-win-x64
+          path: src/Live2DPet.App/bin/Release/net8.0-windows/win-x64/publish
+
+  release:
+    name: Create GitHub Release (tag v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    runs-on: windows-latest
+    steps:
+      - name: Download build
+        uses: actions/download-artifact@v4
+        with:
+          name: Live2DPet-win-x64
+          path: publish
+
+      - name: Package zip
+        shell: powershell
+        run: Compress-Archive -Path "${{ github.workspace }}\publish\*" -DestinationPath "${{ github.workspace }}\Live2DPet-${{ github.ref_name }}-win-x64.zip" -Force
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" "${{ github.workspace }}\Live2DPet-${{ github.ref_name }}-win-x64.zip" --title "Live2DPet ${{ github.ref_name }}" --generate-notes
