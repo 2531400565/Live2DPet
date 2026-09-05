@@ -181,6 +181,16 @@ public sealed class PetLayeredWindow : IDisposable
 
         Marshal.Copy(pixels, 0, _ppvBits, pixels.Length);
 
+        UpdateLayered();
+    }
+
+    /// <summary>用当前 DIB 内容 + 当前 _opacity 重新合成一次分层窗口。
+    /// 供 PushFrame 每帧调用，也供 SetHidden 在切换隐藏状态时调用——后者是为了让不透明度的变化
+    /// 立刻生效，否则在渲染循环被暂停（隐藏时）会出现"旧帧卡在屏幕上"的假象。</summary>
+    private void UpdateLayered()
+    {
+        if (_hwnd == IntPtr.Zero || _hBitmap == IntPtr.Zero || _hdcMem == IntPtr.Zero) return;
+
         NativeMethods.GetWindowRect(_hwnd, out var rect);
         var ppt = new NativeMethods.POINT { X = rect.left, Y = rect.top };
         var psize = new NativeMethods.SIZE { cx = _width, cy = _height };
@@ -188,7 +198,7 @@ public sealed class PetLayeredWindow : IDisposable
         var blend = new NativeMethods.BLENDFUNCTION
         {
             BlendOp = NativeMethods.AC_SRC_OVER,
-            SourceConstantAlpha = (byte)(_opacity * 255f),
+            SourceConstantAlpha = (byte)(Math.Clamp(_opacity, 0f, 1f) * 255f),
             AlphaFormat = NativeMethods.AC_SRC_PREMULT
         };
         NativeMethods.UpdateLayeredWindow(_hwnd, IntPtr.Zero, ref ppt, ref psize, _hdcMem, ref pptSrc, 0, ref blend, NativeMethods.ULW_ALPHA);
@@ -516,6 +526,9 @@ public sealed class PetLayeredWindow : IDisposable
             NativeMethods.SetWindowPos(_hwnd, IntPtr.Zero, 0, 0, 0, 0,
                 NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_FRAMECHANGED);
         }
+        // 关键：用新透明度立即重画一次分层窗口。隐藏时让不透明度 0 立刻生效（避免渲染循环暂停后
+        // 旧帧以旧透明度卡在屏幕上的"假隐藏"），显示时也无需等下一帧 Tick 即可见。
+        UpdateLayered();
     }
 
     public bool IsHidden => _hidden;
