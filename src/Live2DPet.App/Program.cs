@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
+using Live2DPet.Core;
 using Live2DPet.Core.Pet;
 using Live2DPet.Core.Settings;
 
@@ -43,7 +44,7 @@ internal static class Program
         // 等其释放后重试获取，避免自启的新进程误判"已在运行"而秒退。
         for (int attempt = 0; attempt < 6; attempt++)
         {
-            using var mutex = new Mutex(true, mutexName, out bool createdNew);
+            _singleton = new Mutex(true, mutexName, out bool createdNew);
             if (createdNew)
             {
                 try
@@ -68,15 +69,42 @@ internal static class Program
                 return;
             }
             // 已有实例在运行：唤醒它；稍等后重试（覆盖崩溃自启的释放竞态）
+            try { _singleton?.Dispose(); } catch { }
+            _singleton = null;
             SignalExistingInstance(activateName);
             if (attempt < 5) Thread.Sleep(400);
         }
     }
 
+    /// <summary>当前进程持有的单实例互斥量（全局唯一）。</summary>
+    private static Mutex? _singleton;
+
+    /// <summary>
+    /// 主动释放单实例互斥量：渲染故障（GL 上下文丢失）后应用会"接力重启"——
+    /// 先放锁再拉起新进程，新进程才能立刻拿到所有权，
+    /// 否则会误判"已有实例在运行"而把自己退出，导致桌宠彻底消失。
+    /// </summary>
+    internal static void ReleaseSingleton()
+    {
+        try
+        {
+            _singleton?.ReleaseMutex();
+            _singleton?.Dispose();
+        }
+        catch { /* 释放失败不影响后续退出流程 */ }
+        finally { _singleton = null; }
+    }
+
     /// <summary>未处理异常时：写日志，若设置允许且未超过自启上限，拉起新进程后由调用方退出。</summary>
     private static void RelaunchAfterCrash(Exception? ex)
     {
-        try { CrashLog.Write(ex); } catch { }
+        try
+        {
+            CrashLog.Write(ex);
+            if (ex != null) AppLog.Error(ex, "未处理异常");
+            else AppLog.Error("未处理异常：异常对象为空");
+        }
+        catch { }
         try
         {
             bool allow = true;
@@ -119,12 +147,6 @@ internal static class Program
 
     private static void StartupLog(string msg)
     {
-        try
-        {
-            var dir = Path.Combine(AppContext.BaseDirectory, "logs");
-            Directory.CreateDirectory(dir);
-            File.AppendAllText(Path.Combine(dir, "init.log"), $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
-        }
-        catch { }
+        AppLog.Info("[startup] " + msg);
     }
 }

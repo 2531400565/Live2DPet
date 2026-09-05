@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
+using Live2DPet.Core;
 using Live2DPet.Platform.Native;
 
 namespace Live2DPet.Platform.Window;
@@ -40,6 +41,20 @@ public sealed class PetLayeredWindow : IDisposable
     public event Action<int, int>? PetRightClicked;
     /// <summary>拖拽结束（窗口位置已改变）时触发，业务层据此保存新位置。</summary>
     public event Action? PetMoved;
+
+    // ---- DPI / 显示器变化（v1.1）----
+    /// <summary>窗口所在显示器的 DPI 发生变化（拖到不同缩放的屏幕、用户改了系统缩放）时触发，参数为新 DPI。
+    /// 业务层据此按新 DPI 重算渲染分辨率，避免桌宠在高分屏上被拉伸模糊或物理尺寸突变。</summary>
+    public event Action<int>? DpiChanged;
+
+    /// <summary>显示器配置变化（分辨率调整、拔插外接屏、投影切换）时触发。
+    /// 业务层据此校正位置并保存，避免桌宠停在已消失的屏幕区域外。</summary>
+    public event Action? DisplayChanged;
+
+    /// <summary>当前窗口所在显示器的 DPI（默认 96 = 100% 缩放）。</summary>
+    public int Dpi => _dpi;
+
+    private int _dpi = 96;
 
     private bool _clickThrough;          // 与 SetClickThrough 同步：true=整窗穿透、不交互
     private bool _pressing, _handlePress, _dragging;
@@ -240,6 +255,14 @@ public sealed class PetLayeredWindow : IDisposable
 
         CreateDib(_width, _height);
 
+        // 建窗后立即取真实 DPI（进程为 PerMonitorV2，不同显示器 DPI 可能不同）
+        int dpi = NativeMethods.GetDpiForWindow(_hwnd);
+        if (dpi > 0 && dpi != _dpi)
+        {
+            _dpi = dpi;
+            AppLog.Info($"[window] initial dpi={dpi}");
+        }
+
         while (_running && NativeMethods.GetMessage(out var msg, IntPtr.Zero, 0, 0))
         {
             NativeMethods.TranslateMessage(ref msg);
@@ -388,6 +411,33 @@ public sealed class PetLayeredWindow : IDisposable
                 if ((int)wParam == InertiaTimerId) { StepInertia(); return IntPtr.Zero; }
                 return NativeMethods.DefWindowProc(hWnd, msg, wParam, lParam);
             }
+            case NativeMethods.WM_DPICHANGED:
+            {
+                // 拖到不同缩放的显示器、或用户改了系统缩放：按新 DPI 重算渲染分辨率，避免模糊/尺寸突变
+                int wp = wParam.ToInt32();
+                int dpiX = (short)(wp & 0xFFFF);
+                int dpiY = (short)((wp >> 16) & 0xFFFF);
+                int newDpi = dpiX > 0 ? dpiX : dpiY;
+                if (newDpi > 0)
+                {
+                    _dpi = newDpi;
+                    InvalidateContentBounds();   // 画布尺寸即将变化，角色包围盒缓存必须重算
+                    // lParam = 系统建议矩形（保持相对位置、已按新 DPI 换算），先落位，尺寸交给业务层重算
+                    var suggested = Marshal.PtrToStructure<NativeMethods.RECT>(lParam);
+                    NativeMethods.SetWindowPos(hWnd, IntPtr.Zero, suggested.left, suggested.top, 0, 0,
+                        NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER);
+                    AppLog.Info($"[window] dpi changed -> {newDpi}, pos ({suggested.left},{suggested.top})");
+                    DpiChanged?.Invoke(newDpi);
+                }
+                return IntPtr.Zero;
+            }
+            case NativeMethods.WM_DISPLAYCHANGE:
+            {
+                // 显示器配置变化（改分辨率 / 拔插外接屏 / 投影切换）：先把桌宠拉回可见区域再通知业务层
+                if (EnsureOnScreen()) AppLog.Info("[window] display changed: pet moved back into view");
+                DisplayChanged?.Invoke();
+                return IntPtr.Zero;
+            }
             case NativeMethods.WM_DESTROY:
                 NativeMethods.PostQuitMessage(0);
                 return IntPtr.Zero;
@@ -422,6 +472,51 @@ public sealed class PetLayeredWindow : IDisposable
         // 垂直：顶部（含把手）始终在屏内，底部可出屏
         int minY = vy, maxY = Math.Max(vy, vy + vh - margin);
         y = Math.Clamp(y, minY, maxY);
+    }
+
+    /// <summary>显示器配置变化后（改分辨率 / 拔掉外接屏）把桌宠拉回可见范围：
+    /// 若窗口中心已不在虚拟屏幕内（多半是所在显示器消失了），直接搬回主工作区右下角；
+    /// 否则仅 clamp 回屏内。返回是否真的移动过。</summary>
+    public bool EnsureOnScreen()
+    {
+        if (_hwnd == IntPtr.Zero) return false;
+
+        NativeMethods.GetWindowRect(_hwnd, out var r);
+        int w = Math.Max(1, r.right - r.left);
+        int h = Math.Max(1, r.bottom - r.top);
+        int vx = NativeMethods.GetSystemMetrics(NativeMethods.SM_XVIRTUALSCREEN);
+        int vy = NativeMethods.GetSystemMetrics(NativeMethods.SM_YVIRTUALSCREEN);
+        int vw = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXVIRTUALSCREEN);
+        int vh = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYVIRTUALSCREEN);
+
+        int cx = r.left + w / 2, cy = r.top + h / 2;
+        bool centerOffScreen = cx < vx || cx >= vx + vw || cy < vy || cy >= vy + vh;
+
+        if (centerOffScreen)
+        {
+            int nx, ny;
+            var wa = new NativeMethods.RECT();
+            if (NativeMethods.SystemParametersInfo(NativeMethods.SPI_GETWORKAREA, 0, ref wa, 0))
+            {
+                nx = Math.Max(wa.left, wa.right - w - 20);
+                ny = Math.Max(wa.top, wa.bottom - h - 20);
+            }
+            else
+            {
+                nx = Math.Max(vx, vx + vw - w - 20);
+                ny = Math.Max(vy, vy + vh - h - 20);
+            }
+            NativeMethods.SetWindowPos(_hwnd, IntPtr.Zero, nx, ny, 0, 0,
+                NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER);
+            return true;
+        }
+
+        int x = r.left, y = r.top;
+        ClampToScreen(ref x, ref y);
+        if (x == r.left && y == r.top) return false;
+        NativeMethods.SetWindowPos(_hwnd, IntPtr.Zero, x, y, 0, 0,
+            NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER);
+        return true;
     }
 
     /// <summary>拖拽结束后调用：若窗口靠近屏幕边缘则吸附贴边（记录贴边方向）。</summary>

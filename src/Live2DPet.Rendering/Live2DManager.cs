@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Live2DCSharpSDK.Framework.Motion;
+using Live2DPet.Core;
 using Live2DPet.Core.Live2D;
 using Live2DPet.Core.Pet;
 
@@ -20,6 +21,15 @@ public sealed class Live2DManager : ILive2DManager, IDisposable
 
     public event Action<FrameData>? FrameAvailable;
 
+    /// <summary>渲染连续失败（多半是 GL 上下文丢失）达到阈值时触发，业务层据此恢复。</summary>
+    public event Action<Exception>? RenderFaulted;
+
+    /// <summary>当前是否处于"渲染故障"状态（连续失败已达阈值）。</summary>
+    public bool IsRenderFaulted => _host?.IsFaulted ?? false;
+
+    /// <summary>重置故障计数（休眠唤醒等场景主动调用，避免旧计数误导恢复逻辑）。</summary>
+    public void ResetFaultCount() => _host?.ResetFaults();
+
     public IReadOnlyDictionary<string, ResolvedParam> ResolvedParameters => _resolved;
 
     /// <summary>启动渲染宿主并加载指定模型。必须在主线程调用。</summary>
@@ -31,6 +41,7 @@ public sealed class Live2DManager : ILive2DManager, IDisposable
         _host = new PetGlHost(w, h, modelDir, modelName);
         _host.FrameReady += f => FrameAvailable?.Invoke(f);
         _host.ModelLoaded += OnModelLoaded;
+        _host.RenderFaulted += ex => RenderFaulted?.Invoke(ex);
         _host.Start();
     }
 
@@ -57,9 +68,9 @@ public sealed class Live2DManager : ILive2DManager, IDisposable
         var map = ModelLoader.LoadOrCreate(mapPath);
         _resolved = ParameterMapping.Resolve(map, ids);
 
-        Console.WriteLine("[Live2D] resolved parameters:");
+        AppLog.Info("[Live2D] resolved parameters:");
         foreach (var kv in _resolved)
-            Console.WriteLine($"  {kv.Key} -> {(kv.Value.Present ? kv.Value.ActualId : "NOT FOUND (模型无此参数)")}");
+            AppLog.Info($"  {kv.Key} -> {(kv.Value.Present ? kv.Value.ActualId : "NOT FOUND (模型无此参数)")}");
     }
 
     public void Stop()

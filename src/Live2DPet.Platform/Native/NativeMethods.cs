@@ -368,4 +368,26 @@ public static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern bool KillTimer(IntPtr hWnd, IntPtr nIDEvent);
+
+    // ---- 系统事件：DPI 变化 / 显示器变化 / 电源（休眠唤醒）/ 系统时间跳变 ----
+    public const int WM_DPICHANGED = 0x02E0;
+    public const int WM_DISPLAYCHANGE = 0x007E;
+    public const int WM_SETTINGCHANGE = 0x001A;
+    public const int WM_POWERBROADCAST = 0x0218;
+    public const int WM_TIMECHANGE = 0x001E;
+
+    public const int PBT_APMSUSPEND = 0x0004;             // 即将进入休眠
+    public const int PBT_APMRESUMESUSPEND = 0x0007;       // 已唤醒（用户触发）
+    public const int PBT_APMRESUMEAUTOMATIC = 0x0012;     // 已自动唤醒（定时/网络唤醒）
+    public const int PBT_APMPOWERSTATUSCHANGE = 0x000A;   // 电源状态变化（插拔电源等）
+
+    /// <summary>取窗口所在显示器的 DPI（Win10 1607+）。失败返回 0，调用方需回退到 96。</summary>
+    [DllImport("user32.dll")]
+    public static extern int GetDpiForWindow(IntPtr hWnd);
+
+    /// <summary>取主显示器工作区（不含任务栏），用于把越界的桌宠放回可见区域。</summary>
+    [DllImport("user32.dll")]
+    public static extern bool SystemParametersInfo(int uiAction, int uiParam, ref RECT pvParam, int fWinIni);
+
+    public const int SPI_GETWORKAREA = 0x0030;
 }

@@ -57,6 +57,24 @@ public sealed class PetGlHost : IDisposable
     /// <summary>模型加载完成（在主线程触发），业务层据此读取真实参数并生成映射。</summary>
     public event Action? ModelLoaded;
 
+    /// <summary>
+    /// 连续渲染失败达到阈值（GL 上下文丢失 / 驱动重置 / 显卡切换等）时触发，附带最后一次异常。
+    /// 只会在"刚跨过阈值"时触发一次；恢复正常（成功渲染一帧）后计数清零，可再次触发。
+    /// 业务层据此做恢复（本程序采用保存状态后优雅重启），避免桌宠一直黑屏却毫无反应。
+    /// </summary>
+    public event Action<Exception>? RenderFaulted;
+
+    /// <summary>连续渲染失败次数（成功一帧即清零）。</summary>
+    public int ConsecutiveFaults { get; private set; }
+
+    /// <summary>是否已判定为渲染故障（连续失败达到阈值）。</summary>
+    public bool IsFaulted => ConsecutiveFaults >= FaultThreshold;
+
+    private const int FaultThreshold = 5;
+
+    /// <summary>清零故障计数（休眠唤醒后主动调用，避免把唤醒瞬间的一次抖动误判为故障）。</summary>
+    public void ResetFaults() => ConsecutiveFaults = 0;
+
     public PetGlHost(int width, int height, string modelDir, string modelName)
     {
         _width = width;
@@ -104,7 +122,27 @@ public sealed class PetGlHost : IDisposable
     {
         if (_disposed || _window == null || _model == null || _lapp == null) return;
 
-        // 鼠标跟随（Phase 2 之前由引擎内部的 CubismTargetPoint 做平滑）
+        try
+        {
+            TickCore(dt);
+            ConsecutiveFaults = 0;   // 只要成功渲染一帧，就认为 GL 恢复正常
+        }
+        catch (Exception ex)
+        {
+            // GL 上下文丢失（驱动重置 / 休眠唤醒 / 远程桌面 / 独显切换）会让后续所有 GL 调用失败。
+            // 这里不直接重建（Cubism SDK 的全局状态重入风险高），而是上报给业务层做进程级恢复。
+            ConsecutiveFaults++;
+            if (ConsecutiveFaults == FaultThreshold)
+                RenderFaulted?.Invoke(ex);
+        }
+    }
+
+    /// <summary>一帧的真实流程：推引擎 → 施加微表情 → 读回像素 → 抛帧。异常交由 Tick 统计。</summary>
+    private unsafe void TickCore(float dt)
+    {
+        if (_disposed || _window == null || _model == null || _lapp == null) return;
+
+        // 鼠标跟随（引擎内部的 CubismTargetPoint 负责平滑）
         if (_mouseX.HasValue && _mouseY.HasValue)
             _model.SetDragging(_mouseX.Value, _mouseY.Value);
 

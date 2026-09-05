@@ -7,4 +7,8 @@
     <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Live2DPet.Core\Live2DPet.Core.csproj" />
+  </ItemGroup>
+
 </Project>

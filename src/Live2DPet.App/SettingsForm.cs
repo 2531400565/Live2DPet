@@ -20,6 +20,8 @@ public sealed class SettingsForm : Form
     private readonly Action<ModelInfo> _onModelSelected;
     private readonly Action<string> _onExpressionSelected;
     private readonly Action _onReset;
+    private readonly Action _onBackup;
+    private readonly Action _onRestore;
     private bool _loading = true;
 
     // ---- 外观 ----
@@ -51,6 +53,8 @@ public sealed class SettingsForm : Form
     private readonly NumericUpDown _dndEndH = new() { Left = 110, Top = 102, Width = 48, Minimum = 0, Maximum = 23 };
     private readonly NumericUpDown _dndEndM = new() { Left = 164, Top = 102, Width = 48, Minimum = 0, Maximum = 45, Increment = 15 };
     private readonly Button _resetButton = new() { Text = "重置养成数据…", Left = 12, Top = 140, Width = 150, Height = 32 };
+    private readonly Button _backupButton = new() { Text = "备份配置与养成数据…", Left = 12, Top = 186, Width = 180, Height = 30 };
+    private readonly Button _restoreButton = new() { Text = "从备份还原…", Left = 12, Top = 224, Width = 180, Height = 30 };
 
     // ---- 提醒 ----
     private readonly CheckBox _chimeCheck = new() { Left = 12, Top = 8, AutoSize = true, Text = "整点/半点报时" };
@@ -73,13 +77,16 @@ public sealed class SettingsForm : Form
     public SettingsForm(AppSettings settings, IReadOnlyList<ModelInfo> models, string currentModelId,
                         IReadOnlyList<string> expressions, string currentExpression,
                         Action apply, Action<ModelInfo> onModelSelected,
-                        Action<string> onExpressionSelected, Action onReset)
+                        Action<string> onExpressionSelected, Action onReset,
+                        Action onBackup, Action onRestore)
     {
         _settings = settings;
         _apply = apply;
         _onModelSelected = onModelSelected;
         _onExpressionSelected = onExpressionSelected;
         _onReset = onReset;
+        _onBackup = onBackup;
+        _onRestore = onRestore;
 
         Text = "桌宠设置";
         ClientSize = new Size(396, 480);
@@ -139,6 +146,13 @@ public sealed class SettingsForm : Form
         pageCare.Controls.Add(_dndEndM);
         pageCare.Controls.Add(new Label { Text = "（支持跨午夜，如 23:00 → 08:00）", Left = 220, Top = 72, AutoSize = true, ForeColor = Color.Gray });
         pageCare.Controls.Add(_resetButton);
+        pageCare.Controls.Add(_backupButton);
+        pageCare.Controls.Add(_restoreButton);
+        pageCare.Controls.Add(new Label
+        {
+            Text = "备份包含设置、养成进度与参数映射，换机/重装后可一键还原。",
+            Left = 12, Top = 262, Width = 340, Height = 32, ForeColor = Color.Gray
+        });
 
         // ===== 提醒页 =====
         pageRemind.Controls.Add(_chimeCheck);
@@ -269,6 +283,8 @@ public sealed class SettingsForm : Form
                     "重置养成", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
                 _onReset?.Invoke();
         };
+        _backupButton.Click += (_, _) => { if (!_loading) _onBackup?.Invoke(); };
+        _restoreButton.Click += (_, _) => { if (!_loading) _onRestore?.Invoke(); };
         _closeButton.Click += (_, _) => Close();
 
         _loading = false;

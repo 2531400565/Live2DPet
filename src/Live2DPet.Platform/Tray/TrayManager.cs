@@ -49,6 +49,7 @@ public sealed class TrayManager : IDisposable
     public event EventHandler? ToggleGazeRequested;
     public event EventHandler? ToggleAutoStartRequested;
     public event EventHandler<string>? ExpressionSelected;
+    public event EventHandler? OpenLogsRequested;   // 打开日志目录（排查用）
 
     public TrayManager()
     {
@@ -66,6 +67,7 @@ public sealed class TrayManager : IDisposable
         _menu.Items.Add(new ToolStripMenuItem("截图桌宠", null, (_, _) => ScreenshotRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("关于 Live2DPet...", null, (_, _) => AboutRequested?.Invoke(this, EventArgs.Empty)));
+        _menu.Items.Add(new ToolStripMenuItem("查看日志...", null, (_, _) => OpenLogsRequested?.Invoke(this, EventArgs.Empty)));
 
         _expressionItem = new ToolStripMenuItem("切换表情");
         _menu.Items.Add(_expressionItem);

@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Live2DPet.Core;
 using Live2DPet.Core.Interaction;
 using Live2DPet.Core.Models;
 using Live2DPet.Core.Mouse;
@@ -90,22 +91,26 @@ public sealed class PetApplication : IDisposable
     private const int PetWidth = 420;
     private const int PetHeight = 680;
 
+    // ---- v1.1：DPI 感知 / 休眠唤醒 / 渲染故障自恢复 ----
+    private int _dpi = 96;                    // 当前所在显示器的 DPI（100% = 96）
+    private bool _suspended;                  // 系统休眠中（渲染已暂停）
+    private DateTime _lastRecovery = DateTime.MinValue;   // 上次"接力重启"时刻
+    private int _recoveryCount;               // 本次运行已尝试的恢复次数
+    private const int MaxRecoveries = 2;      // 恢复上限，避免故障时无限重启
+    private static readonly TimeSpan RecoveryCooldown = TimeSpan.FromSeconds(30);
+
+    // 空帧（全透明）检测：驱动重置后 GL 可能不报错但一直出空帧，靠它兜底
+    private DateTime _blankSince = DateTime.MinValue;
+    private DateTime _lastBlankCheck = DateTime.MinValue;
+    private int _framesSinceStart;
+
     private static string SettingsPath => Path.Combine(AppContext.BaseDirectory, "config", "settings.json");
     private static string PetStatePath => Path.Combine(AppContext.BaseDirectory, "config", "petstate.json");
 
     /// <summary>隐藏宿主窗，作为 WinForms 消息循环的锚点（供 Application.Run 使用）。</summary>
     public Form UiHost => _uiHost;
 
-    private static void Log(string msg)
-    {
-        try
-        {
-            var dir = Path.Combine(AppContext.BaseDirectory, "logs");
-            Directory.CreateDirectory(dir);
-            File.AppendAllText(Path.Combine(dir, "init.log"), $"{DateTime.Now:HH:mm:ss.fff} {msg}\n");
-        }
-        catch { }
-    }
+    private static void Log(string msg) => Live2DPet.Core.AppLog.Info("[app] " + msg);
 
     public PetApplication(string activateEventName = "")
     {
@@ -156,9 +161,12 @@ public sealed class PetApplication : IDisposable
         // 2) Live2D 业务门面（主线程创建隐藏 GameWindow + 加载模型）
         _live2D = new Live2DManager();
         _live2D.FrameAvailable += OnFrame;
+        _live2D.RenderFaulted += OnRenderFaulted;   // GL 连续失败 → 自恢复
 
         // 3) 原生分层窗口（透明置顶 + 鼠标穿透），自带消息循环线程
         _petWindow = new PetLayeredWindow(PetWidth, PetHeight, _settings.PosX, _settings.PosY);
+        _petWindow.DpiChanged += OnPetDpiChanged;         // 拖到不同缩放的屏幕 / 改系统缩放
+        _petWindow.DisplayChanged += OnDisplayChanged;    // 拔插外接屏 / 改分辨率
         _petWindow.Show();
         _petWindow.SetOpacity((float)_settings.Opacity);
         _petWindow.SetClickThrough(_settings.ClickThrough);
@@ -206,6 +214,7 @@ public sealed class PetApplication : IDisposable
         _tray.StatusRequested += (_, _) => ShowStatus();
         _tray.ScreenshotRequested += (_, _) => Ui(TakeScreenshot);
         _tray.AboutRequested += (_, _) => ShowAbout();
+        _tray.OpenLogsRequested += (_, _) => AppLog.OpenFolder();
         _tray.SetClickThroughChecked(_settings.ClickThrough);
         _tray.SetKeyboardInteractionChecked(_settings.KeyboardInteraction);
         _tray.SetGazeChecked(_settings.GazeFollow);
@@ -304,6 +313,9 @@ public sealed class PetApplication : IDisposable
             Log("StartLive2D: before Start");
             _live2D.Start(_currentModel.Dir, _currentModel.Name);
             Log("StartLive2D: after Start");
+            // 取窗口真实 DPI 后再套缩放：高分屏下按 DPI 放大渲染分辨率，避免位图被系统拉伸而模糊
+            int dpi = _petWindow?.Dpi ?? 0;
+            if (dpi > 0 && dpi != _dpi) { _dpi = dpi; Log($"StartLive2D: dpi={dpi}"); }
             ApplyScale();
             RefreshExpressions();
             RefreshIdleGroups();
@@ -400,7 +412,141 @@ public sealed class PetApplication : IDisposable
 
     private void OnFrame(FrameData frame)
     {
+        if (_framesSinceStart < int.MaxValue) _framesSinceStart++;
         _petWindow?.PushFrame(frame.Pixels, frame.Width, frame.Height);
+        CheckBlankFrame(frame);
+    }
+
+    // ---- 渲染故障自恢复（v1.1）----
+
+    /// <summary>GL 连续渲染失败（驱动重置 / 上下文丢失 / 独显切换）：记录后走"接力重启"。</summary>
+    private void OnRenderFaulted(Exception ex)
+    {
+        AppLog.Error(ex, "渲染连续失败");
+        RequestRecovery("渲染连续失败（GL 上下文可能已丢失）");
+    }
+
+    /// <summary>
+    /// 空帧兜底检测：部分驱动重置后 GL 调用不报错，但一直出全透明帧（用户看到的是"桌宠消失了"）。
+    /// 每 2 秒抽样一次，持续 10 秒空帧即判定异常。隐藏/刚启动/切换模型期间不参与判定。
+    /// </summary>
+    private void CheckBlankFrame(FrameData frame)
+    {
+        var now = DateTime.UtcNow;
+        if (now - _lastBlankCheck < TimeSpan.FromSeconds(2)) return;
+        _lastBlankCheck = now;
+
+        if (_petWindow == null || _petWindow.IsHidden || _framesSinceStart < 30 || _suspended)
+        {
+            _blankSince = DateTime.MinValue;
+            return;
+        }
+
+        if (!IsMostlyTransparent(frame.Pixels))
+        {
+            _blankSince = DateTime.MinValue;
+            return;
+        }
+
+        if (_blankSince == DateTime.MinValue) { _blankSince = now; return; }
+        if (now - _blankSince < TimeSpan.FromSeconds(10)) return;
+
+        _blankSince = DateTime.MinValue;
+        AppLog.Warn("[render] 连续 10 秒空帧，疑似 GL 上下文失效");
+        RequestRecovery("持续空帧（疑似 GL 上下文失效）");
+    }
+
+    /// <summary>抽样判断一帧是否几乎全透明（每 64 字节取一个 alpha，够快也够准）。</summary>
+    private static bool IsMostlyTransparent(byte[] pixels)
+    {
+        if (pixels.Length < 4) return true;
+        for (int i = 3; i < pixels.Length; i += 64)
+            if (pixels[i] > 8) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// 优雅"接力重启"：先落盘当前状态、释放单实例锁，再拉起新进程，最后退出自己。
+    /// 这是 GL 上下文丢失最可靠的恢复手段——Cubism SDK 的全局状态不支持安全地进程内重建，
+    /// 而对常驻桌宠来说，重启一两秒、养成数据不丢，远好过一直黑屏。
+    /// </summary>
+    private void RequestRecovery(string reason)
+    {
+        if (_disposed) return;
+
+        var now = DateTime.UtcNow;
+        if (now - _lastRecovery < RecoveryCooldown)
+        {
+            AppLog.Warn($"[recover] 冷却中，跳过本次恢复：{reason}");
+            return;
+        }
+        if (_recoveryCount >= MaxRecoveries)
+        {
+            AppLog.Warn($"[recover] 已达本次运行上限 {MaxRecoveries} 次，不再重启：{reason}");
+            _tray?.ShowBalloon("Live2D 桌宠", "渲染出了问题，我已经尽力重启了几次。\n请手动重启我一下~");
+            return;
+        }
+
+        _recoveryCount++;
+        _lastRecovery = now;
+        AppLog.Error($"[recover] {reason} → 第 {_recoveryCount} 次自恢复重启");
+
+        try
+        {
+            SaveWindowPosition();
+            SettingsStore.Save(_settings, SettingsPath);
+            PetStateStore.Save(_petState, PetStatePath);
+        }
+        catch (Exception ex) { AppLog.Error(ex, "恢复前保存状态失败"); }
+
+        try
+        {
+            string? exe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe)) return;
+            Program.ReleaseSingleton();   // 先放锁：否则新实例会误判"已在运行"并退出自己
+            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(ex, "自恢复重启失败");
+            return;
+        }
+
+        Application.Exit();
+    }
+
+    // ---- 系统电源 / 时间 / 显示器事件（v1.1）----
+
+    /// <summary>系统即将休眠：立刻暂停渲染并落盘，避免休眠期间掉电丢进度、也避免唤醒时 dt 爆炸。</summary>
+    private void OnSystemSuspend()
+    {
+        _suspended = true;
+        try { _renderTimer?.Stop(); } catch { }
+        try { PetStateStore.Save(_petState, PetStatePath); } catch { }
+        Log("[power] 系统进入休眠：已暂停渲染并保存进度");
+    }
+
+    /// <summary>系统唤醒：重置时间基准（丢弃休眠时长）、恢复渲染，并把桌宠拉回可见区域。</summary>
+    private void OnSystemResume(string source)
+    {
+        _suspended = false;
+        // 关键：不把休眠的几小时算进 dt，否则引擎一帧推进几小时，动画与状态全部跳变
+        if (_renderStopwatch != null) _lastRender = _renderStopwatch.Elapsed.TotalSeconds;
+        _onlineStamp = DateTime.UtcNow;      // 休眠时长不计入在线时长统计
+        _blankSince = DateTime.MinValue;     // 唤醒瞬间的空帧不计入故障判定
+        _lastBlankCheck = DateTime.UtcNow;
+        _live2D?.ResetFaultCount();          // 唤醒时的一次抖动不算故障
+
+        _petWindow?.EnsureOnScreen();        // 可能在另一块显示器/不同分辨率下唤醒
+        if (_petWindow != null) ApplyRenderPause(_petWindow.IsHidden);
+        Log($"[power] 系统已唤醒（{source}）：渲染恢复，时间基准已重置");
+    }
+
+    /// <summary>系统时间被大幅修改（手动改表 / 域同步 / 从休眠恢复后校时）：重置在线计时基准。</summary>
+    private void OnSystemTimeChanged()
+    {
+        _onlineStamp = DateTime.UtcNow;
+        Log("[system] 系统时间变化：在线计时基准已重置");
     }
 
     /// <summary>轮询全局光标，换算成归一化跟随目标喂给 Live2D（眼神/头部跟随鼠标）。
@@ -442,13 +588,32 @@ public sealed class PetApplication : IDisposable
             _renderTimer.Interval = interval;
     }
 
-    /// <summary>按设置里的缩放值，同步调整渲染视口与分层窗口尺寸（模型随视口等比缩放，无裁切）。</summary>
+    /// <summary>按设置里的缩放值 + 当前显示器 DPI，同步调整渲染视口与分层窗口尺寸。
+    /// DPI 参与计算是关键：桌宠画布以 96 DPI（100%）为基准，
+    /// 在 150%/200% 缩放下若仍按 96 渲染，系统会把位图拉伸 → 明显模糊、边缘发虚。</summary>
     private void ApplyScale()
     {
-        int w = Math.Max(1, (int)Math.Round(PetWidth * _settings.Scale));
-        int h = Math.Max(1, (int)Math.Round(PetHeight * _settings.Scale));
+        double factor = _settings.Scale * (_dpi / 96.0);
+        int w = Math.Max(1, (int)Math.Round(PetWidth * factor));
+        int h = Math.Max(1, (int)Math.Round(PetHeight * factor));
         _live2D?.Resize(w, h);
         _petWindow?.Resize(w, h);
+    }
+
+    /// <summary>显示器 DPI 变化：更新 DPI 并按新 DPI 重建渲染分辨率与画布。</summary>
+    private void OnPetDpiChanged(int dpi)
+    {
+        if (dpi <= 0 || dpi == _dpi) return;
+        _dpi = dpi;
+        Log($"dpi changed -> {dpi}");
+        ApplyScale();
+    }
+
+    /// <summary>显示器配置变化（拔插外接屏 / 改分辨率）：位置已被窗口层校正，这里只负责持久化。</summary>
+    private void OnDisplayChanged()
+    {
+        SaveWindowPosition();
+        _petWindow?.InvalidateContentBounds();
     }
 
     /// <summary>把当前设置应用到桌宠窗口并持久化（设置窗/托盘改动共用入口）。</summary>
@@ -1145,8 +1310,82 @@ public sealed class PetApplication : IDisposable
             ApplySettings,
             OnModelSelected,
             OnExpressionSelected,
-            ResetProgress);
+            ResetProgress,
+            BackupConfig,
+            RestoreConfig);
         form.ShowDialog(_uiHost);
+    }
+
+    private static string ConfigDir => Path.Combine(AppContext.BaseDirectory, "config");
+
+    /// <summary>把设置 / 养成进度 / 参数映射打包成一个 zip（换机、重装前的保险）。</summary>
+    private void BackupConfig()
+    {
+        string suggest = ConfigBackup.DefaultExportPath();
+        using var dlg = new SaveFileDialog
+        {
+            Title = "备份配置与养成数据",
+            Filter = "Live2DPet 备份 (*.zip)|*.zip",
+            FileName = Path.GetFileName(suggest),
+            InitialDirectory = Path.GetDirectoryName(suggest) ?? ""
+        };
+        if (dlg.ShowDialog(_uiHost) != DialogResult.OK) return;
+
+        if (ConfigBackup.Export(ConfigDir, dlg.FileName, out string err, out int count))
+        {
+            AppLog.Info($"[backup] 已备份 {count} 个文件 -> {dlg.FileName}");
+            MessageBox.Show($"备份完成，共 {count} 个文件：\n{dlg.FileName}", "备份成功",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        else
+        {
+            AppLog.Error($"[backup] 备份失败：{err}");
+            MessageBox.Show($"备份失败：\n{err}", "备份失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>从备份 zip 还原（覆盖前会二次确认，并在落盘后立即重新加载生效）。</summary>
+    private void RestoreConfig()
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = "选择备份文件还原",
+            Filter = "Live2DPet 备份 (*.zip)|*.zip|所有文件 (*.*)|*.*"
+        };
+        if (dlg.ShowDialog(_uiHost) != DialogResult.OK) return;
+
+        if (MessageBox.Show("还原会覆盖当前的设置与养成进度，确定继续吗？", "还原备份",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+
+        if (!ConfigBackup.Import(dlg.FileName, ConfigDir, out string err, out int count))
+        {
+            AppLog.Error($"[restore] 还原失败：{err}");
+            MessageBox.Show($"还原失败：\n{err}", "还原失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        ReloadFromDisk();
+        AppLog.Info($"[restore] 已从 {dlg.FileName} 还原 {count} 个文件");
+        _tray?.ShowBalloon("还原完成", $"已恢复 {count} 个配置文件~");
+    }
+
+    /// <summary>从磁盘重新加载设置与养成状态并应用到运行时（备份还原后调用）。</summary>
+    private void ReloadFromDisk()
+    {
+        _settings = SettingsStore.Load(SettingsPath);
+        _petState = PetStateStore.Load(PetStatePath);
+        _onlineStamp = DateTime.UtcNow;
+        _clickThrough = _settings.ClickThrough;
+        _keyboardEnabled = _settings.KeyboardInteraction;
+        ApplySettings();
+        RefreshExpressions();
+        _tray?.SetClickThroughChecked(_settings.ClickThrough);
+        _tray?.SetKeyboardInteractionChecked(_settings.KeyboardInteraction);
+        _tray?.SetGazeChecked(_settings.GazeFollow);
+        _tray?.SetAutoStartChecked(_settings.AutoStart);
+        // 养成数据已换：关掉可能开着的旧面板，下次打开会重建
+        _statusForm?.Close();
+        _statusForm = null;
     }
 
     public void Dispose()
@@ -1200,6 +1439,25 @@ public sealed class PetApplication : IDisposable
                 _owner.OnHotKey();
                 m.Result = IntPtr.Zero;
                 return;
+            }
+            switch (m.Msg)
+            {
+                case NativeMethods.WM_POWERBROADCAST:
+                {
+                    int ev = m.WParam.ToInt32();
+                    if (ev == NativeMethods.PBT_APMSUSPEND) _owner.OnSystemSuspend();
+                    else if (ev == NativeMethods.PBT_APMRESUMESUSPEND) _owner.OnSystemResume("用户唤醒");
+                    else if (ev == NativeMethods.PBT_APMRESUMEAUTOMATIC) _owner.OnSystemResume("自动唤醒");
+                    m.Result = new IntPtr(1);   // 已处理
+                    return;
+                }
+                case NativeMethods.WM_TIMECHANGE:
+                    _owner.OnSystemTimeChanged();
+                    break;
+                case NativeMethods.WM_DISPLAYCHANGE:
+                    // 窗口层已负责把桌宠拉回可见区域；这里补一次位置持久化
+                    _owner.OnDisplayChanged();
+                    break;
             }
             base.WndProc(ref m);
         }
