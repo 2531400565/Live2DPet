@@ -8,8 +8,24 @@ on:
     branches: [ main ]
 
 jobs:
+  test:
+    name: Unit tests (Core)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Run Core unit tests
+        run: dotnet test tests/Live2DPet.Core.Tests/Live2DPet.Core.Tests.csproj -c Release
+
   publish:
     name: Publish win-x64
+    needs: test
     runs-on: windows-latest
     steps:
       - name: Checkout
