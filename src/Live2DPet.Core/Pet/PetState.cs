@@ -67,6 +67,12 @@ public sealed class PetState
     /// <summary>当前等级已累积经验</summary>
     public int Experience { get; set; }
 
+    /// <summary>满级后溢出的"羁绊经验"（仅 Level≥MaxLevel 时累积）：满级不是终点，持续陪伴仍有成长。</summary>
+    public int BondExp { get; set; }
+
+    /// <summary>羁绊等级 0..MaxBondLevel（满级后通过持续互动累积经验提升）。</summary>
+    public int BondLevel { get; set; }
+
     /// <summary>上次保存时间（UTC），用于离线衰减。</summary>
     public DateTime LastSeen { get; set; } = DateTime.UtcNow;
 
@@ -97,6 +103,9 @@ public sealed class PetState
     public List<string> UnlockedAchievements { get; set; } = new();
 
     public const int MaxLevel = 10;
+
+    /// <summary>羁绊最高等级（满级后继续陪伴可到达的长期目标）。</summary>
+    public const int MaxBondLevel = 5;
 
     /// <summary>等级里程碑：到达这些等级时解锁额外内容（台词更亲昵 + 里程碑提示）。</summary>
     public static readonly int[] MilestoneLevels = { 3, 5, 7, 10 };
@@ -135,6 +144,20 @@ public sealed class PetState
     /// <summary>升到下一级所需经验（每级递增）。</summary>
     public int ExpToNext => Level >= MaxLevel ? 0 : Level * 50;
 
+    /// <summary>升到下一羁绊级所需经验（随羁绊等级递增，起点高于普通升级曲线）。</summary>
+    public int BondExpToNext => BondLevel >= MaxBondLevel ? 0 : 200 + BondLevel * 150;
+
+    /// <summary>羁绊称号：满级后长期陪伴的里程碑名号（0 = 尚未缔结）。</summary>
+    public string BondName => BondLevel switch
+    {
+        0 => "未缔结",
+        1 => "心之友",
+        2 => "知心伙伴",
+        3 => "灵魂知己",
+        4 => "命定之人",
+        _ => "永恒羁绊"
+    };
+
     /// <summary>增加好感度，返回是否发生亲密度等级提升。</summary>
     public bool AddAffection(int amount)
     {
@@ -143,20 +166,35 @@ public sealed class PetState
         return AffectionLevel > before;
     }
 
-    /// <summary>增加经验，返回是否升级（可能连升多级）。</summary>
+    /// <summary>增加经验：等级未满则照常升级；满级后经验转入"羁绊"累积，
+    /// 羁绊升级同样返回 true（上层可弹对应提示）。</summary>
     public bool AddExperience(int amount)
     {
-        if (Level >= MaxLevel) return false;
-        Experience += amount;
-        bool leveled = false;
-        while (Level < MaxLevel && Experience >= ExpToNext)
+        if (Level < MaxLevel)
         {
-            Experience -= ExpToNext;
-            Level++;
-            leveled = true;
+            Experience += amount;
+            bool leveled = false;
+            while (Level < MaxLevel && Experience >= ExpToNext)
+            {
+                Experience -= ExpToNext;
+                Level++;
+                leveled = true;
+            }
+            if (Level >= MaxLevel) Experience = 0;
+            return leveled;
         }
-        if (Level >= MaxLevel) Experience = 0;
-        return leveled;
+        // 满级：经验不再丢弃，累积羁绊——持续陪伴依然有可见成长
+        if (BondLevel >= MaxBondLevel) return false;
+        BondExp += amount;
+        bool bondUp = false;
+        while (BondLevel < MaxBondLevel && BondExp >= BondExpToNext)
+        {
+            BondExp -= BondExpToNext;
+            BondLevel++;
+            bondUp = true;
+        }
+        if (BondLevel >= MaxBondLevel) BondExp = 0;
+        return bondUp;
     }
 
     // ---- 照顾操作（带限制，返回 CareResult 供上层决定弹什么气泡）----

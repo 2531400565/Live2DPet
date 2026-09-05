@@ -205,6 +205,7 @@ public sealed class PetApplication : IDisposable
         _tray.ShowPetRequested += (_, _) => Ui(ShowPet);
         _tray.StatusRequested += (_, _) => ShowStatus();
         _tray.ScreenshotRequested += (_, _) => Ui(TakeScreenshot);
+        _tray.AboutRequested += (_, _) => ShowAbout();
         _tray.SetClickThroughChecked(_settings.ClickThrough);
         _tray.SetKeyboardInteractionChecked(_settings.KeyboardInteraction);
         _tray.SetGazeChecked(_settings.GazeFollow);
@@ -252,9 +253,10 @@ public sealed class PetApplication : IDisposable
         if (loginReport.IsNewDay)
         {
             int lvBefore = _petState.Level;
+            int bondBefore = _petState.BondLevel;
             _petState.AddAffection(loginReport.RewardAffection);
             _petState.AddExperience(loginReport.RewardExp);
-            AnnounceLevelUp(lvBefore);          // 签到经验可能升级 → 补升级/里程碑提示
+            AnnounceLevelUp(lvBefore, bondBefore);  // 签到经验可能升级/羁绊提升 → 补提示
             CheckAndAnnounceAchievements();     // 签到奖励也可能解锁成就
         }
 
@@ -269,11 +271,12 @@ public sealed class PetApplication : IDisposable
         else if (sinceLast > TimeSpan.FromMinutes(15))
         {
             int lvBefore = _petState.Level;
+            int bondBefore = _petState.BondLevel;
             int wbAff = Math.Clamp((int)(sinceLast.TotalHours * 2), 1, 30);
             int wbExp = Math.Clamp((int)sinceLast.TotalHours, 1, 20);
             _petState.AddAffection(wbAff);
             _petState.AddExperience(wbExp);
-            AnnounceLevelUp(lvBefore);          // 离线补偿经验可能升级 → 补升级/里程碑提示
+            AnnounceLevelUp(lvBefore, bondBefore);  // 离线补偿经验可能升级/羁绊提升 → 补提示
             CheckAndAnnounceAchievements();     // 离线累计的互动/在线也可能解锁成就
             greeting = PetDialogue.WelcomeBack(sinceLast);
         }
@@ -723,7 +726,19 @@ public sealed class PetApplication : IDisposable
         bool leveled = _petState.AddExperience(exp);
         Say(PetDialogue.PickReaction(replies, _petState.Level));
         if (affectionUp) Say(PetDialogue.AffectionUp(_petState.AffectionName));
-        if (leveled) { Say(PetDialogue.LevelUp(_petState.Level, _petState.StageName)); _sound?.Play("levelup"); }
+        if (leveled)
+        {
+            if (_petState.Level > levelBefore)
+            {
+                Say(PetDialogue.LevelUp(_petState.Level, _petState.StageName));
+                _sound?.Play("levelup");
+            }
+            else   // 满级后：羁绊等级提升
+            {
+                Say(PetDialogue.BondUp(_petState.BondLevel, _petState.BondName));
+                _sound?.Play("levelup");
+            }
+        }
         SayLevelupUnlocks(levelBefore);
         AfterInteraction();
         PetStateStore.Save(_petState, PetStatePath);
@@ -746,14 +761,19 @@ public sealed class PetApplication : IDisposable
         CheckAndAnnounceAchievements();
     }
 
-    /// <summary>若签到/离线补偿后发生升级，补弹升级 + 里程碑解锁提示（含音效）。</summary>
-    private void AnnounceLevelUp(int levelBefore)
+    /// <summary>若签到/离线补偿/成就奖励后发生升级或羁绊提升，补弹对应提示（含音效）。</summary>
+    private void AnnounceLevelUp(int levelBefore, int bondBefore)
     {
         if (_petState.Level > levelBefore)
         {
             Say(PetDialogue.LevelUp(_petState.Level, _petState.StageName));
             _sound?.Play("levelup");
             SayLevelupUnlocks(levelBefore);
+        }
+        else if (_petState.BondLevel > bondBefore)
+        {
+            Say(PetDialogue.BondUp(_petState.BondLevel, _petState.BondName));
+            _sound?.Play("levelup");
         }
     }
 
@@ -763,6 +783,7 @@ public sealed class PetApplication : IDisposable
     {
         var newly = _petState.CheckAchievements();
         int lvBefore = _petState.Level;
+        int bondBefore = _petState.BondLevel;
         int totalAff = 0, totalExp = 0;
         foreach (var a in newly)
         {
@@ -775,7 +796,7 @@ public sealed class PetApplication : IDisposable
         {
             if (totalAff > 0) _petState.AddAffection(totalAff);
             if (totalExp > 0) _petState.AddExperience(totalExp);
-            AnnounceLevelUp(lvBefore);      // 奖励可能触发升级
+            AnnounceLevelUp(lvBefore, bondBefore);  // 奖励可能触发升级或羁绊提升
             SayLevelupUnlocks(lvBefore);
             PetStateStore.Save(_petState, PetStatePath);
         }
@@ -1104,6 +1125,13 @@ public sealed class PetApplication : IDisposable
             _statusForm = new PetStatusForm(_petState, DoFeed, DoPlay, DoBathe);
         _statusForm.Show();
         _statusForm.Activate();
+    }
+
+    /// <summary>打开关于面板（模态）。</summary>
+    private void ShowAbout()
+    {
+        using var form = new AboutForm();
+        form.ShowDialog(_uiHost);
     }
 
     private void ShowSettings()

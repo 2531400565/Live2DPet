@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
 using Live2DPet.Core.Pet;
 
@@ -100,13 +101,32 @@ public sealed class PetStatusForm : Form
     private void RefreshUi()
     {
         _streakLabel.Text = $"连续陪伴 {_state.LoginStreak} 天 · 累计 {_state.TotalLogins} 天 · 最长 {_state.BestStreak} 天";
-        _levelLabel.Text = $"Lv.{_state.Level} · {_state.StageName}";
-        _expLabel.Text = _state.Level >= PetState.MaxLevel
-            ? "已满级"
-            : $"{_state.Experience}/{_state.ExpToNext}";
+        _levelLabel.Text = _state.Level >= PetState.MaxLevel && _state.BondLevel > 0
+            ? $"Lv.{_state.Level} · {_state.StageName} · {_state.BondName}"
+            : $"Lv.{_state.Level} · {_state.StageName}";
 
-        _expBar.Maximum = Math.Max(1, _state.ExpToNext);
-        _expBar.Value = Math.Min(_expBar.Maximum, _state.Experience);
+        // 经验条：未满级显示升级进度；满级后显示羁绊进度（长期目标）
+        if (_state.Level >= PetState.MaxLevel)
+        {
+            if (_state.BondLevel >= PetState.MaxBondLevel)
+            {
+                _expLabel.Text = $"羁绊圆满 · {_state.BondName}";
+                _expBar.Maximum = 1;
+                _expBar.Value = 1;
+            }
+            else
+            {
+                _expLabel.Text = $"羁绊 Lv.{_state.BondLevel} {_state.BondExp}/{_state.BondExpToNext}";
+                _expBar.Maximum = Math.Max(1, _state.BondExpToNext);
+                _expBar.Value = Math.Min(_expBar.Maximum, _state.BondExp);
+            }
+        }
+        else
+        {
+            _expLabel.Text = $"{_state.Experience}/{_state.ExpToNext}";
+            _expBar.Maximum = Math.Max(1, _state.ExpToNext);
+            _expBar.Value = Math.Min(_expBar.Maximum, _state.Experience);
+        }
 
         _affectionLabel.Text = $"好感度：{_state.AffectionName}（{_state.Affection}/1000）";
         _affectionBar.Maximum = 1000;
@@ -123,7 +143,11 @@ public sealed class PetStatusForm : Form
     private void RefreshStats()
     {
         var ts = TimeSpan.FromSeconds(_state.TotalOnlineSeconds);
+        string bond = _state.Level >= PetState.MaxLevel
+            ? (_state.BondLevel > 0 ? $"羁绊 Lv.{_state.BondLevel} · {_state.BondName}" : "羁绊未缔结（满级后互动开启）")
+            : $"羁绊未开启（满级 Lv.{PetState.MaxLevel} 后开启）";
         _statsLabel.Text =
+            $"羁绊：{bond}\n" +
             $"累计互动：{_state.TotalInteractions} 次\n" +
             $"累计喂食：{_state.TotalFeeds} 次\n" +
             $"累计玩耍：{_state.TotalPlays} 次\n" +
@@ -145,6 +169,9 @@ public sealed class PetStatusForm : Form
         }
         _achieveList.EndUpdate();
         _achieveCountLabel.Text = $"成就（{unlocked}/{AchievementCatalog.All.Count}）";
+        var next = AchievementCatalog.All.FirstOrDefault(a => !_state.UnlockedAchievements.Contains(a.Id));
+        if (next != null)
+            _achieveCountLabel.Text += $"\n下个目标：{next.Name}（{next.Desc}）";
     }
 
     private static void SetBar(ProgressBar bar, int value)

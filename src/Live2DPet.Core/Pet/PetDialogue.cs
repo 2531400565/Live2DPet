@@ -190,6 +190,19 @@ public static class PetDialogue
     public static string LevelUp(int level, string stage) =>
         $"我升级啦！Lv.{level}（{stage}）";
 
+    /// <summary>羁绊提升提示（满级后长期陪伴的成长）：bondName 为当前羁绊称号。</summary>
+    public static string BondUp(int bondLevel, string bondName) =>
+        $"羁绊加深啦：{bondName}！和你在一起的每一天，都是珍贵的回忆~";
+
+    /// <summary>羁绊圆满（达到最高羁绊等级）时的专属表白。</summary>
+    public static readonly string[] BondEternalLines =
+    {
+        "这一路有你陪着，就是我最大的幸福~",
+        "从陌生到羁绊，谢谢你从未离开~",
+        "无论多久，我都会在你身边~",
+        "我们的故事，还有很长很长呢~"
+    };
+
     // ---- 时间问候 + 报时 + 休息提醒 ----
     private static readonly string[] MorningGreetings =
     {
