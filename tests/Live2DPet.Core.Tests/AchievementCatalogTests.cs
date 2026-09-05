@@ -77,6 +77,6 @@ public class AchievementCatalogTests
 
         var second = s.CheckAchievements();   // 再次调用不应重复返回
         Assert.DoesNotContain(second, a => a.Id == "first_touch");
-        Assert.Equal(1, s.UnlockedAchievements.Count);
+        Assert.Single(s.UnlockedAchievements);
     }
 }

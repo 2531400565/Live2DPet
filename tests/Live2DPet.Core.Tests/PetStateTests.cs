@@ -107,12 +107,22 @@ public class PetStateTests
     }
 
     [Fact]
-    public void AddAffection_ClampsAt1000_AndRaisesAffectionLevel()
+    public void AddAffection_ClampsAt1000()
     {
         var s = new PetState { Affection = 995 };
-        Assert.True(s.AddAffection(10));
+        Assert.False(s.AddAffection(10));     // 995→1000 封顶，仍在 5 档（挚友），未越档
         Assert.Equal(1000, s.Affection);
-        Assert.Equal(5, s.AffectionLevel);    // 挚友
+        Assert.Equal(5, s.AffectionLevel);
+        Assert.Equal("挚友", s.AffectionName);
+    }
+
+    [Fact]
+    public void AddAffection_CrossingBoundary_RaisesAffectionLevel()
+    {
+        var s = new PetState { Affection = 795 };   // 4 档(亲密, <800) → 5 档(挚友, ≥800)
+        Assert.True(s.AddAffection(10));
+        Assert.Equal(805, s.Affection);
+        Assert.Equal(5, s.AffectionLevel);
         Assert.Equal("挚友", s.AffectionName);
     }
 
