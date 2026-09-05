@@ -49,6 +49,8 @@ internal static class Program
                 try
                 {
                     StartupLog("Main: begin");
+                    // 高 DPI 配置必须早于任何窗口/控件创建（对应 app.manifest 已移除的 DPI 声明，消除 WFAC010）
+                    Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
                     Application.EnableVisualStyles();
                     Application.SetCompatibleTextRenderingDefault(false);
                     using var app = new PetApplication(activateName);

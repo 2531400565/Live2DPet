@@ -42,6 +42,7 @@ public sealed class TrayManager : IDisposable
     public event EventHandler? SettingsRequested;
     public event EventHandler? StatusRequested;
     public event EventHandler? ScreenshotRequested;
+    public event EventHandler? AboutRequested;
     public event EventHandler? ExitRequested;
     public event EventHandler? ToggleClickThroughRequested;
     public event EventHandler? ToggleKeyboardInteractionRequested;
@@ -63,6 +64,8 @@ public sealed class TrayManager : IDisposable
         _menu.Items.Add(new ToolStripMenuItem("设置...", null, (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripMenuItem("养成面板...", null, (_, _) => StatusRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripMenuItem("截图桌宠", null, (_, _) => ScreenshotRequested?.Invoke(this, EventArgs.Empty)));
+        _menu.Items.Add(new ToolStripSeparator());
+        _menu.Items.Add(new ToolStripMenuItem("关于 Live2DPet...", null, (_, _) => AboutRequested?.Invoke(this, EventArgs.Empty)));
 
         _expressionItem = new ToolStripMenuItem("切换表情");
         _menu.Items.Add(_expressionItem);

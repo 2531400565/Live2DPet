@@ -10,10 +10,6 @@
     </security>
   </trustInfo>
 
-  <application xmlns="urn:schemas-microsoft-com:asm.v3">
-    <windowsSettings>
-      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
-      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor</dpiAwareness>
-    </windowsSettings>
-  </application>
+  <!-- 高 DPI 改为代码内 Application.SetHighDpiMode(PerMonitorV2) 配置（消除 WFAC010），
+       manifest 只保留 asInvoker 执行级别 -->
 </assembly>
