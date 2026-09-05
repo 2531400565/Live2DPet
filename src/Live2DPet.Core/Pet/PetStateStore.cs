@@ -75,7 +75,10 @@ public static class PetStateStore
                             PruneBackups(Path.Combine(bakDir, Path.GetFileNameWithoutExtension(path) + "_*.bak"));
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        StateLog.Warn(path, "petstate", "生成 prev/时间戳备份失败: " + ex.Message);
+                    }
                 }
             }
 
@@ -99,7 +102,10 @@ public static class PetStateStore
                          .Skip(MaxBackups))
                 File.Delete(f);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            StateLog.Warn(searchPattern, "petstate", "清理旧备份失败: " + ex.Message);
+        }
     }
 
     private static System.Collections.Generic.IEnumerable<string> EnumerateBackups(string path)
@@ -139,11 +145,12 @@ public static class PetStateStore
             }
             SafeDelete(path);
         }
-        catch { /* 清理失败不致命 */ }
+        catch (Exception ex) { StateLog.Warn(path, "petstate", "重置清理失败: " + ex.Message); /* 不致命 */ }
     }
 
     private static void SafeDelete(string file)
     {
-        try { if (File.Exists(file)) File.Delete(file); } catch { }
+        try { if (File.Exists(file)) File.Delete(file); }
+        catch (Exception ex) { StateLog.Warn(file, "petstate", "删除文件失败: " + ex.Message); }
     }
 }

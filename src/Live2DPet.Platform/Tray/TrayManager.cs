@@ -37,7 +37,6 @@ public sealed class TrayManager : IDisposable
     private readonly NativeMethods.LowLevelMouseProc _mouseProc;  // 必须持有引用防止被 GC
     private IntPtr _mouseHookId = IntPtr.Zero;
 
-    public event EventHandler? ShowRequested;
     public event EventHandler? ShowPetRequested;  // 强制显示完整桌宠（取消贴边+滑出）
     public event EventHandler? ToggleHideRequested;  // 一键隐藏/显示（Ctrl+`）
     public event EventHandler? SettingsRequested;

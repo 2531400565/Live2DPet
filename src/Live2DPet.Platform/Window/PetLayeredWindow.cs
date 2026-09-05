@@ -19,7 +19,7 @@ public sealed class PetLayeredWindow : IDisposable
     private IntPtr _hwnd;
     private Thread? _thread;
     private volatile bool _running;
-    private NativeMethods.WndProc _wndProc; // 必须保持引用，避免被 GC
+    private NativeMethods.WndProc _wndProc = null!; // 必须保持引用，避免被 GC；ThreadProc 内赋值
     private readonly string _className = "Live2DPetLayered_" + Guid.NewGuid().ToString("N");
 
     // 离屏 DIB（位图缓存）
