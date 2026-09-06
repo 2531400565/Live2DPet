@@ -47,6 +47,7 @@ public sealed class TrayManager : IDisposable
     public event EventHandler? SettingsRequested;
     public event EventHandler? StatusRequested;
     public event EventHandler? ScreenshotRequested;
+    public event EventHandler? SavePngRequested;   // 保存透明 PNG（仅桌宠，不含桌面背景）
     public event EventHandler? AboutRequested;
     public event EventHandler? ExitRequested;
     public event EventHandler? ToggleClickThroughRequested;
@@ -85,6 +86,7 @@ public sealed class TrayManager : IDisposable
         _menu.Items.Add(new ToolStripMenuItem("检查更新...", null, (_, _) => UpdateRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripMenuItem("养成面板...", null, (_, _) => StatusRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripMenuItem("截图桌宠", null, (_, _) => ScreenshotRequested?.Invoke(this, EventArgs.Empty)));
+        _menu.Items.Add(new ToolStripMenuItem("保存透明 PNG", null, (_, _) => SavePngRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("关于 Live2DPet...", null, (_, _) => AboutRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripMenuItem("查看日志...", null, (_, _) => OpenLogsRequested?.Invoke(this, EventArgs.Empty)));

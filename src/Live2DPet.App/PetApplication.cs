@@ -14,6 +14,7 @@ using Live2DPet.Core.Live2D;
 using Live2DPet.Core.Models;
 using Live2DPet.Core.Mouse;
 using Live2DPet.Core.Pet;
+using Live2DPet.Core.Imaging;
 using Live2DPet.Core.Settings;
 using Live2DPet.Core.Update;
 using Live2DPet.App.Update;
@@ -46,6 +47,9 @@ public sealed class PetApplication : IDisposable, IPetHost
     private TrayManager? _tray;
     private Live2DManager? _live2D;
     private PetLayeredWindow? _petWindow;
+
+    // 透明 PNG 导出：缓存最近一帧（BGRA、自上而下、预乘 Alpha），导出时克隆无需重新渲染
+    private FrameData? _lastFrame;
     private KeyboardMonitor? _keyboard;
     private KeyReactionController? _keyReaction;
 
@@ -228,6 +232,7 @@ public sealed class PetApplication : IDisposable, IPetHost
         _tray.ShowPetRequested += (_, _) => Ui(ShowPet);
         _tray.StatusRequested += (_, _) => ShowStatus();
         _tray.ScreenshotRequested += (_, _) => Ui(TakeScreenshot);
+        _tray.SavePngRequested += (_, _) => Ui(SaveTransparentPng);
         _tray.AboutRequested += (_, _) => ShowAbout();
         _tray.OpenLogsRequested += (_, _) => AppLog.OpenFolder();
         _tray.ReloadDialogueRequested += (_, _) => ReloadDialogue(announce: true);
@@ -428,6 +433,7 @@ public sealed class PetApplication : IDisposable, IPetHost
     {
         if (_framesSinceStart < int.MaxValue) _framesSinceStart++;
         _petWindow?.PushFrame(frame.Pixels, frame.Width, frame.Height);
+        _lastFrame = frame;   // 缓存最近一帧供"保存透明 PNG"复用（不重新渲染）
         CheckBlankFrame(frame);
     }
 
@@ -1040,6 +1046,55 @@ public sealed class PetApplication : IDisposable, IPetHost
         {
             Log("screenshot failed: " + ex.Message);
             _tray?.ShowBalloon("截图失败", ex.Message);
+        }
+    }
+
+    // ---- 保存透明 PNG（仅桌宠，不含桌面背景）----
+    /// <summary>
+    /// 把当前渲染帧导出为透明背景 PNG：复用 <see cref="_lastFrame"/>（不重新渲染），
+    /// 克隆后做 Alpha 反预乘（渲染帧为预乘 Alpha，导出须转直 Alpha 以免半透明边缘黑边），
+    /// 写入 <c>图片\Live2DPet\Pet_yyyy-MM-dd_HHmmss.png</c>，并托盘提示保存路径。
+    /// 帧本身只含桌宠（透明清屏的离屏渲染结果），因此导出内容天然不含桌面背景。
+    /// </summary>
+    private void SaveTransparentPng()
+    {
+        var frame = _lastFrame;
+        if (frame == null || frame.Width <= 0 || frame.Height <= 0)
+        {
+            _tray?.ShowBalloon("保存失败", "暂无可用的画面，请稍候再试~");
+            return;
+        }
+
+        int w = frame.Width, h = frame.Height;
+        var pixels = (byte[])frame.Pixels.Clone();   // 克隆当前帧：复用渲染结果，不重新渲染
+        AlphaConversion.Unpremultiply(pixels, pixels.Length);   // 预乘 → 直 Alpha，去黑边
+
+        string picturesDir = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+        string dir = Path.Combine(picturesDir, PngExportNaming.SubFolder);
+        Directory.CreateDirectory(dir);
+        string path = PngExportNaming.BuildSavePath(picturesDir, DateTime.Now);
+
+        try
+        {
+            using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+            var rect = new Rectangle(0, 0, w, h);
+            var data = bmp.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                Marshal.Copy(pixels, 0, data.Scan0, pixels.Length);
+            }
+            finally
+            {
+                bmp.UnlockBits(data);
+            }
+            bmp.Save(path, ImageFormat.Png);
+            Log("transparent png saved: " + path);
+            _tray?.ShowBalloon("已保存透明 PNG", path);
+        }
+        catch (Exception ex)
+        {
+            Log("save transparent png failed: " + ex.Message);
+            _tray?.ShowBalloon("保存失败", ex.Message);
         }
     }
 
