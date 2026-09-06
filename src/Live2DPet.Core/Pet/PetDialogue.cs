@@ -11,10 +11,31 @@ public static class PetDialogue
 {
     private static readonly Random Rng = new();
 
+    /// <summary>台词里的昵称占位符，展示时替换为宠物昵称（不区分大小写）。</summary>
+    public const string NameToken = "{name}";
+
+    /// <summary>默认昵称：用户未起名或把名字清空时使用，避免出现"早安，！"这类断句。</summary>
+    public const string DefaultPetName = "小宠";
+
+    /// <summary>
+    /// 把台词中的昵称占位符 <c>{name}</c> 替换成宠物昵称（纯函数，便于单测）。
+    /// 语义：昵称是<b>宠物自己的名字</b>，台词中用第三人称自称，如"{name}等你好久啦~"。
+    /// </summary>
+    /// <param name="text">原始台词（可空）。</param>
+    /// <param name="petName">宠物昵称，空白时回退 <see cref="DefaultPetName"/>。</param>
+    /// <returns>替换后的台词；原文为空则返回空串。</returns>
+    public static string Named(string? text, string? petName)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        if (text.IndexOf(NameToken, StringComparison.OrdinalIgnoreCase) < 0) return text;
+        string name = string.IsNullOrWhiteSpace(petName) ? DefaultPetName : petName.Trim();
+        return text.Replace(NameToken, name, StringComparison.OrdinalIgnoreCase);
+    }
+
     public static readonly string[] Greetings =
     {
         "今天也要元气满满呀~",
-        "你来啦，我等你好久了！",
+        "你来啦，{name}等你好久了！",
         "嘿嘿，又见面啦~",
         "今天想和我玩吗？"
     };
@@ -262,7 +283,7 @@ public static class PetDialogue
         "发会儿呆…",
         "伸了个懒腰~",
         "今天天气真好呀~",
-        "在想你什么时候来找我玩呢~",
+        "{name}在想你什么时候来找我玩呢~",
         "哼着小曲儿~",
         "偷偷打了个盹~"
     };
@@ -362,8 +383,8 @@ public static class PetDialogue
 
     public static readonly string[] WakeLines =
     {
-        "醒啦！你回来啦，想死你了~",
-        "诶？你回来啦，我刚睡着呢~",
+        "醒啦！你回来啦，{name}想死你啦~",
+        "诶？你回来啦，{name}刚睡着呢~",
         "醒醒醒醒，你终于回来咯~",
         "好耶，你回来我就不困啦~"
     };

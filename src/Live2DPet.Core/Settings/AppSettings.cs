@@ -1,11 +1,16 @@
 namespace Live2DPet.Core.Settings;
 
+using Live2DPet.Core.Pet;
+
 /// <summary>
 /// 全局用户设置。所有字段都带默认值，保证未配置文件时程序也能启动。
 /// 由 SettingsStore 负责读写 config/settings.json。
 /// </summary>
 public class AppSettings
 {
+    /// <summary>宠物昵称（用于台词里的 {name} 占位替换）。空白时回退默认昵称。</summary>
+    public string PetName { get; set; } = PetDialogue.DefaultPetName;
+
     /// <summary>窗口整体不透明度 0..1</summary>
     public double Opacity { get; set; } = 1.0;
 

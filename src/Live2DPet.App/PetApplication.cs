@@ -54,6 +54,8 @@ public sealed class PetApplication : IDisposable, IPetHost
     private PetScheduler? _scheduler;
 
     private AppSettings _settings = new();
+    // 已生效的昵称：与设置值比对检测"用户改了名字"，用于触发改名反应与刷新面板标题
+    private string _appliedPetName = PetDialogue.DefaultPetName;
     private List<ModelInfo> _models = new();
     private ModelInfo? _currentModel;
     private List<string> _expressions = new();
@@ -137,6 +139,7 @@ public sealed class PetApplication : IDisposable, IPetHost
         Log("init: begin");
         // 1) 加载设置 + 解析模型
         _settings = SettingsStore.Load(SettingsPath);
+        _appliedPetName = NormalizePetName(_settings.PetName);   // 初始昵称先对齐，避免启动时误触发改名反应
 
         // 养成状态：加载 + 离线衰减 + 气泡窗口（均须在 UI 线程）
         _petState = PetStateStore.Load(PetStatePath);
@@ -618,6 +621,16 @@ public sealed class PetApplication : IDisposable, IPetHost
     /// <summary>把当前设置应用到桌宠窗口并持久化（设置窗/托盘改动共用入口）。</summary>
     private void ApplySettings()
     {
+        // 昵称变化：即时刷新已开面板标题 + 给一句改名反应（无需重启）
+        var petName = NormalizePetName(_settings.PetName);
+        if (!string.Equals(petName, _appliedPetName, StringComparison.Ordinal))
+        {
+            _appliedPetName = petName;
+            _settings.PetName = petName;      // 空白名字写回默认昵称，避免设置里存脏值
+            _statusForm?.SetPetName(petName);
+            Say($"{petName}？{petName}喜欢这个名字~");
+        }
+
         _clickThrough = _settings.ClickThrough;
         _keyboardEnabled = _settings.KeyboardInteraction;
         ApplyScale();
@@ -886,7 +899,8 @@ public sealed class PetApplication : IDisposable, IPetHost
         // 兜底：早期帧未渲染出有效 alpha 时回退到窗口几何参考
         if (cx <= b.left) cx = (b.left + b.right) / 2;
         if (headTop <= b.top) headTop = b.top;
-        _bubbleWindow.ShowBubble(text, cx, headTop - 4);
+        // 昵称占位统一在此收口：所有气泡文案（互动/养成/提醒）都支持 {name}
+        _bubbleWindow.ShowBubble(PetDialogue.Named(text, _settings.PetName), cx, headTop - 4);
     }
 
     /// <summary>环境气泡（待机碎碎念/报时/休息提醒/低状态提醒等）：免打扰时段内抑制。
@@ -947,11 +961,15 @@ public sealed class PetApplication : IDisposable, IPetHost
         _sound?.Play("greet");
     }
 
+    /// <summary>昵称规范化：去首尾空白；空白时回退默认昵称（与 Core.PetDialogue.Named 行为一致）。</summary>
+    private static string NormalizePetName(string? name)
+        => string.IsNullOrWhiteSpace(name) ? PetDialogue.DefaultPetName : name.Trim();
+
     /// <summary>打开养成面板（喂食/陪玩/洗澡动作由互动服务执行）。</summary>
     private void ShowStatus()
     {
         if (_statusForm == null || _statusForm.IsDisposed)
-            _statusForm = new PetStatusForm(_petState, _interaction.Feed, _interaction.Play, _interaction.Bathe);
+            _statusForm = new PetStatusForm(_petState, _interaction.Feed, _interaction.Play, _interaction.Bathe, _appliedPetName);
         _statusForm.Show();
         _statusForm.Activate();
     }
@@ -959,7 +977,7 @@ public sealed class PetApplication : IDisposable, IPetHost
     /// <summary>打开关于面板（模态）。</summary>
     private void ShowAbout()
     {
-        using var form = new AboutForm();
+        using var form = new AboutForm(_appliedPetName);
         form.ShowDialog(_uiHost);
     }
 
@@ -1064,6 +1082,7 @@ public sealed class PetApplication : IDisposable, IPetHost
     {
         _settings = SettingsStore.Load(SettingsPath);
         _petState = PetStateStore.Load(PetStatePath);
+        _appliedPetName = NormalizePetName(_settings.PetName);   // 还原后昵称可能不同，直接对齐避免误报改名
         _scheduler?.ResetOnlineStamp();   // 新状态从此刻起算在线时长
         _clickThrough = _settings.ClickThrough;
         _keyboardEnabled = _settings.KeyboardInteraction;

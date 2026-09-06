@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Reflection;
 using System.Windows.Forms;
+using Live2DPet.Core.Pet;
 
 namespace Live2DPet.App;
 
@@ -14,7 +15,7 @@ public sealed class AboutForm : Form
 {
     private const string RepoUrl = "https://github.com/2531400565/Live2DPet";
 
-    public AboutForm()
+    public AboutForm(string? petName = null)
     {
         Text = "关于 Live2DPet";
         ClientSize = new Size(360, 268);
@@ -59,6 +60,16 @@ public sealed class AboutForm : Form
             Text = "透明置顶实时渲染的 Live2D 桌面宠物：互动养成、\n成就签到、节日彩蛋、免打扰、一键截图与崩溃自启。",
             Location = new Point(16, 78),
             AutoSize = true
+        });
+
+        // 当前陪伴的宠物昵称（与设置里的名字保持同步；未起名时显示默认昵称）
+        var name = string.IsNullOrWhiteSpace(petName) ? PetDialogue.DefaultPetName : petName.Trim();
+        Controls.Add(new Label
+        {
+            Text = $"当前陪伴：{name}",
+            Location = new Point(16, 120),
+            AutoSize = true,
+            ForeColor = Color.FromArgb(0x2B, 0x57, 0x9A)
         });
 
         var link = new LinkLabel

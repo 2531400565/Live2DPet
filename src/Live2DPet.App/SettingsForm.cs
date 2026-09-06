@@ -32,6 +32,7 @@ public sealed class SettingsForm : Form
     private readonly Label _opacityLabel = new() { Left = 290, Top = 104, Width = 44, TextAlign = ContentAlignment.MiddleRight };
     private readonly ComboBox _expressionCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Left = 110, Top = 162, Width = 230 };
     private readonly ComboBox _fpsCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Left = 110, Top = 226, Width = 120 };
+    private readonly TextBox _petNameBox = new() { Left = 110, Top = 292, Width = 150, MaxLength = 12 };
 
     // ---- 互动 ----
     private readonly CheckBox _clickThroughCheck = new() { Left = 12, Top = 8, AutoSize = true, Text = "鼠标穿透（完全穿透，不接收鼠标）" };
@@ -120,6 +121,13 @@ public sealed class SettingsForm : Form
         pageAppearance.Controls.Add(_expressionCombo);
         pageAppearance.Controls.Add(new Label { Text = "帧率", Left = 8, Top = 232, AutoSize = true });
         pageAppearance.Controls.Add(_fpsCombo);
+        pageAppearance.Controls.Add(new Label { Text = "昵称", Left = 8, Top = 298, AutoSize = true });
+        pageAppearance.Controls.Add(_petNameBox);
+        pageAppearance.Controls.Add(new Label
+        {
+            Text = "台词里可用 {name} 引用这个名字，留空则回到默认昵称。",
+            Left = 12, Top = 320, Width = 340, Height = 30, ForeColor = Color.Gray
+        });
 
         // ===== 互动页 =====
         pageInteraction.Controls.Add(_clickThroughCheck);
@@ -204,6 +212,7 @@ public sealed class SettingsForm : Form
 
         _soundCheck.Checked = settings.SoundEnabled;
         _volumeTrack.Value = settings.Volume;
+        _petNameBox.Text = settings.PetName;
 
         _birthdayBox.Text = settings.Birthday;
         _dndCheck.Checked = settings.DndEnabled;
@@ -254,6 +263,7 @@ public sealed class SettingsForm : Form
         };
         _soundCheck.CheckedChanged += (_, _) => { if (_loading) return; _settings.SoundEnabled = _soundCheck.Checked; _apply(); };
         _volumeTrack.ValueChanged += (_, _) => { if (_loading) return; _settings.Volume = _volumeTrack.Value; UpdateLabels(); _apply(); };
+        _petNameBox.Leave += (_, _) => CommitPetName();
         _birthdayBox.Leave += (_, _) =>
         {
             if (_loading) return;
@@ -292,6 +302,24 @@ public sealed class SettingsForm : Form
         _closeButton.Click += (_, _) => Close();
 
         _loading = false;
+    }
+
+    /// <summary>提交昵称改动：去空白后写入设置并立即应用（宿主负责空白回退默认昵称与改名反应）。</summary>
+    private void CommitPetName()
+    {
+        if (_loading) return;
+        var name = _petNameBox.Text.Trim();
+        if (string.Equals(name, _settings.PetName, StringComparison.Ordinal)) return;
+        _settings.PetName = name;
+        _apply();
+        _petNameBox.Text = _settings.PetName;   // 回写宿主规范化后的值（如空白 → 默认昵称）
+    }
+
+    /// <summary>改完昵称直接关窗时不会触发 Leave，这里补一次提交，避免改动丢失。</summary>
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        CommitPetName();
+        base.OnFormClosing(e);
     }
 
     private void UpdateLabels()

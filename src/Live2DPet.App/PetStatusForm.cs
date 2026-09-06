@@ -17,6 +17,7 @@ public sealed class PetStatusForm : Form
     private readonly System.Windows.Forms.Timer _refreshTimer;
 
     // ---- 养成页控件 ----
+    private readonly Label _headerLabel = new() { Left = 16, Top = 6, AutoSize = true };
     private readonly Label _levelLabel = new() { Left = 16, Top = 52, AutoSize = true };
     private readonly Label _streakLabel = new() { Left = 16, Top = 30, AutoSize = true, ForeColor = Color.Gray };
     private readonly ProgressBar _expBar = new() { Left = 16, Top = 78, Width = 200, Height = 18 };
@@ -38,7 +39,7 @@ public sealed class PetStatusForm : Form
     // ---- 统计页控件 ----
     private readonly Label _statsLabel = new() { Left = 16, Top = 12, AutoSize = true };
 
-    public PetStatusForm(PetState state, Action onFeed, Action onPlay, Action onBathe)
+    public PetStatusForm(PetState state, Action onFeed, Action onPlay, Action onBathe, string? petName = null)
     {
         _state = state;
 
@@ -61,7 +62,9 @@ public sealed class PetStatusForm : Form
         tabs.TabPages.Add(statsPage);
 
         // ---- 养成页 ----
-        carePage.Controls.Add(new Label { Text = "养成面板", Left = 16, Top = 6, AutoSize = true, Font = new Font(Font, FontStyle.Bold) });
+        _headerLabel.Font = new Font(Font, FontStyle.Bold);
+        SetPetName(petName);
+        carePage.Controls.Add(_headerLabel);
         carePage.Controls.Add(_streakLabel);
         carePage.Controls.Add(_levelLabel);
         carePage.Controls.Add(_expBar);
@@ -96,6 +99,14 @@ public sealed class PetStatusForm : Form
         _refreshTimer = new System.Windows.Forms.Timer { Interval = 1000 };
         _refreshTimer.Tick += (_, _) => RefreshUi();
         _refreshTimer.Start();
+    }
+
+    /// <summary>更新昵称显示（标题栏 + 养成页抬头）。改名字时宿主直接调用，无需重建窗口。</summary>
+    public void SetPetName(string? petName)
+    {
+        string name = string.IsNullOrWhiteSpace(petName) ? PetDialogue.DefaultPetName : petName.Trim();
+        Text = $"养成面板 · {name}";
+        _headerLabel.Text = $"{name} 的养成面板";
     }
 
     private void RefreshUi()

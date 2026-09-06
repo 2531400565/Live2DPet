@@ -120,4 +120,68 @@ public class PetDialogueTests
         Assert.NotEmpty(PetDialogue.BondEternalLines);
         Assert.All(PetDialogue.BondEternalLines, l => Assert.False(string.IsNullOrWhiteSpace(l)));
     }
+
+    // ---- v1.3 昵称占位 {name} ----
+
+    [Fact]
+    public void Named_ReplacesToken()
+    {
+        Assert.Equal("小埋等你好久啦~", PetDialogue.Named("{name}等你好久啦~", "小埋"));
+    }
+
+    [Fact]
+    public void Named_ReplacesEveryOccurrence()
+    {
+        Assert.Equal("咪咪来啦，咪咪想你~", PetDialogue.Named("{name}来啦，{name}想你~", "咪咪"));
+    }
+
+    [Fact]
+    public void Named_TokenIsCaseInsensitive()
+    {
+        Assert.Equal("小埋醒啦", PetDialogue.Named("{Name}醒啦", "小埋"));
+    }
+
+    [Fact]
+    public void Named_NoToken_ReturnsOriginal()
+    {
+        Assert.Equal("今天也要元气满满呀~", PetDialogue.Named("今天也要元气满满呀~", "小埋"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Named_BlankPetName_FallsBackToDefault(string? name)
+    {
+        Assert.Equal($"早安，{PetDialogue.DefaultPetName}！", PetDialogue.Named("早安，{name}！", name));
+    }
+
+    [Fact]
+    public void Named_TrimsPetName()
+    {
+        Assert.Equal("小埋", PetDialogue.Named("{name}", "  小埋  "));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void Named_BlankText_ReturnsEmpty(string? text)
+    {
+        Assert.Equal(string.Empty, PetDialogue.Named(text, "小埋"));
+    }
+
+    [Fact]
+    public void Named_DefaultLinesWithToken_ResolveToName()
+    {
+        // 内置台词里带 {name} 的条目，替换后不应残留占位符
+        var resolved = PetDialogue.Named(PetDialogue.Greetings[1], "小埋");
+        Assert.DoesNotContain(PetDialogue.NameToken, resolved);
+        Assert.Contains("小埋", resolved);
+    }
+
+    [Fact]
+    public void DefaultPetName_IsNotEmpty()
+    {
+        Assert.False(string.IsNullOrWhiteSpace(PetDialogue.DefaultPetName));
+    }
 }
