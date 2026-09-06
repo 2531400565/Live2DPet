@@ -97,6 +97,8 @@ public sealed class PetState
     public int TotalPlays { get; set; }
     /// <summary>累计洗澡次数。</summary>
     public int TotalBaths { get; set; }
+    /// <summary>累计完成的专注陪伴（番茄钟）次数；达成专注类成就的依据。</summary>
+    public int TotalFocusSessions { get; set; }
     /// <summary>累计在线时长（秒），用于统计面板。</summary>
     public long TotalOnlineSeconds { get; set; }
     /// <summary>已解锁成就的 id 列表（持久化）。</summary>

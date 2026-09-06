@@ -359,6 +359,43 @@ public static class PetDialogue
         "心情好得想转圈圈~"
     };
 
+    // ---- 专注陪伴（番茄钟 / Focus Companion）台词：专注期间宠物主动保持安静，只做必要提示 ----
+    public static readonly string[] FocusStartLines =
+    {
+        "那我开始陪你专心做事啦，悄悄安静下来~",
+        "专注时间到！{name}会乖乖的不吵你~",
+        "开工咯，我就在旁边陪着你~"
+    };
+
+    public static readonly string[] FocusReminderLines =
+    {
+        "已经过去 5 分钟啦，喝口水、伸个懒腰~",
+        "进度不错哦，继续保持专注~",
+        "我一直在呢，累了就抬头看看我~",
+        "又坚持了一会儿，你超棒的！"
+    };
+
+    public static readonly string[] FocusDoneLines =
+    {
+        "专注完成！你真厉害，休息一下吧~",
+        "一个番茄钟结束啦，拍拍手奖励自己~",
+        "专注任务达成，{name}为你骄傲！"
+    };
+
+    public static readonly string[] BreakStartLines =
+    {
+        "短休开始，起来走两步放松一下~",
+        "休息 5 分钟，别盯屏幕太久哦~",
+        "放松一下，{name}陪你发会儿呆~"
+    };
+
+    public static readonly string[] BreakDoneLines =
+    {
+        "休息结束啦，继续加油哦~",
+        "满血复活！下一轮专注开始~",
+        "歇够啦，我们接着来~"
+    };
+
     /// <summary>离线"欢迎回来"：按离开时长给不同台词与热情度。</summary>
     public static string WelcomeBack(TimeSpan gap)
     {

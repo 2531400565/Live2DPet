@@ -25,6 +25,13 @@ public sealed class DialogueOverrides
     /// <summary>JSON 中的注释字段名（下划线开头，解析时忽略，可随意删）。</summary>
     public const string CommentKey = "_comment";
 
+    /// <summary>配置文件版本字段名（下划线开头，解析时忽略）。当前版本为 <see cref="CurrentVersion"/>。
+    /// 后续若台词格式升级，以该字段为依据做迁移，缺失时一律按 <see cref="CurrentVersion"/> 处理以保证向后兼容。</summary>
+    public const string VersionKey = "_version";
+
+    /// <summary>台词配置文件当前版本号。任何新增/破坏性字段变更都应 +1 并在 <see cref="Parse"/> 中按版本分支迁移。</summary>
+    public const int CurrentVersion = 1;
+
     /// <summary>单组最多保留多少句（超出截断，避免超大文件拖慢启动）。</summary>
     public const int MaxLinesPerGroup = 50;
 
@@ -252,7 +259,8 @@ public sealed class DialogueOverrides
     }
 
     /// <summary>解析 JSON 文本；损坏返回 null 并通过 <paramref name="error"/> 给出原因。
-    /// 未知字段（含 <c>_comment</c>）静默忽略，不因多余字段报错。</summary>
+    /// 所有 <c>_</c> 开头字段（<c>_comment</c>、<c>_version</c> 等元信息）静默忽略；
+    /// 未知分组字段也忽略，不因多余字段报错。缺失 <c>_version</c> 视为当前版本，保证向后兼容。</summary>
     public static DialogueOverrides? Parse(string json, out string? error)
     {
         error = null;
@@ -270,11 +278,21 @@ public sealed class DialogueOverrides
                 return null;
             }
 
+            // 读取版本（缺失→当前版本，向后兼容）
+            int version = ReadVersion(root);
+            if (version > CurrentVersion)
+            {
+                // 未来若文件版本高于本程序能识别的最高版本：不崩，回退内置并提示
+                error = $"台词文件版本 v{version} 高于本程序支持的最高 v{CurrentVersion}，已回退内置台词";
+                return null;
+            }
+
             var o = new DialogueOverrides();
             foreach (var prop in root.EnumerateObject())
             {
+                if (prop.Name.StartsWith("_", StringComparison.Ordinal)) continue;   // 所有 _ 开头元字段忽略
                 var name = Canonical(prop.Name);
-                if (name == null) continue;                  // _comment / 未知分组：忽略
+                if (name == null) continue;                  // 未知分组：忽略
                 var clean = Sanitize(ReadLines(prop.Value));
                 if (clean != null) o.Set(name, clean);
             }
@@ -285,6 +303,17 @@ public sealed class DialogueOverrides
             error = "台词文件 JSON 格式有误: " + ex.Message;
             return null;
         }
+    }
+
+    /// <summary>从 JSON 根读取 <c>_version</c>（缺失/非法时返回 <see cref="CurrentVersion"/>）。供未来按版本迁移使用。</summary>
+    public static int ReadVersion(JsonElement root)
+    {
+        if (root.TryGetProperty(VersionKey, out var v))
+        {
+            if (v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int n) && n > 0) return n;
+            if (v.ValueKind == JsonValueKind.String && int.TryParse(v.GetString(), out int s) && s > 0) return s;
+        }
+        return CurrentVersion;   // 缺失视为当前版本
     }
 
     /// <summary>读取一个分组的值：字符串数组优先；单个字符串按一句处理；其余类型视为未配置。</summary>
@@ -331,6 +360,8 @@ public sealed class DialogueOverrides
                 foreach (var line in CommentLines()) w.WriteStringValue(line);
                 w.WriteEndArray();
 
+                w.WriteNumber(VersionKey, CurrentVersion);   // 配置版本，供未来升级迁移；解析时忽略
+
                 foreach (var name in GroupNames)
                 {
                     var lines = Sanitize(overrides.Get(name)) ?? PetDialogue.BuiltinFor(name);
@@ -367,6 +398,10 @@ public sealed class DialogueOverrides
             "",
             "【占位符】",
             "  {name} = 宠物昵称（设置页「外观」里改），例：\"{name}等你好久啦~\"",
+            "",
+            "【元字段（下划线开头，解析时全部忽略，可随意删）】",
+            "  _version = 配置版本号（当前 1）；升级依据，缺失时按 1 处理。",
+            "  _comment = 本说明。",
             "",
             "【分组说明】"
         };

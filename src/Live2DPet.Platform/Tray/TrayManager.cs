@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Live2DPet.Core.Pet;
 using Live2DPet.Platform.Native;
 
 namespace Live2DPet.Platform.Tray;
@@ -31,6 +32,10 @@ public sealed class TrayManager : IDisposable
     private readonly ToolStripMenuItem _autoStartItem;
     private readonly ToolStripMenuItem _expressionItem;
     private readonly ToolStripMenuItem _hideItem;
+    private readonly ToolStripMenuItem _focusMenu;
+    private readonly ToolStripMenuItem _startFocusItem;
+    private readonly ToolStripMenuItem _startBreakItem;
+    private readonly ToolStripMenuItem _stopFocusItem;
     private bool _disposed;
 
     // 全局低级鼠标钩子（仅在菜单可见期间安装/卸载，菜单关闭即摘钩）
@@ -53,6 +58,9 @@ public sealed class TrayManager : IDisposable
     public event EventHandler? UpdateRequested;     // 检查更新
     public event EventHandler? BalloonClicked;      // 点击托盘气泡（如"发现新版本"提示）
     public event EventHandler? ReloadDialogueRequested;   // 重新读取 config/dialogue.json（台词热更新，无需重启）
+    public event EventHandler? StartFocusRequested;        // 开始专注（托盘菜单）
+    public event EventHandler? StartBreakRequested;        // 开始短休（托盘菜单）
+    public event EventHandler? StopFocusRequested;          // 停止当前专注/短休
 
     public TrayManager()
     {
@@ -67,6 +75,13 @@ public sealed class TrayManager : IDisposable
         _menu.Items.Add(_hideItem);
         _menu.Items.Add(new ToolStripMenuItem("设置...", null, (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripMenuItem("重新加载台词", null, (_, _) => ReloadDialogueRequested?.Invoke(this, EventArgs.Empty)));
+        _menu.Items.Add(new ToolStripSeparator());
+        _focusMenu = new ToolStripMenuItem("专注陪伴");
+        _startFocusItem = new ToolStripMenuItem("开始专注", null, (_, _) => StartFocusRequested?.Invoke(this, EventArgs.Empty));
+        _startBreakItem = new ToolStripMenuItem("短休", null, (_, _) => StartBreakRequested?.Invoke(this, EventArgs.Empty));
+        _stopFocusItem = new ToolStripMenuItem("停止", null, (_, _) => StopFocusRequested?.Invoke(this, EventArgs.Empty));
+        _focusMenu.DropDownItems.AddRange(new ToolStripItem[] { _startFocusItem, _startBreakItem, _stopFocusItem });
+        _menu.Items.Add(_focusMenu);
         _menu.Items.Add(new ToolStripMenuItem("检查更新...", null, (_, _) => UpdateRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripMenuItem("养成面板...", null, (_, _) => StatusRequested?.Invoke(this, EventArgs.Empty)));
         _menu.Items.Add(new ToolStripMenuItem("截图桌宠", null, (_, _) => ScreenshotRequested?.Invoke(this, EventArgs.Empty)));
@@ -244,6 +259,30 @@ public sealed class TrayManager : IDisposable
     {
         if (_disposed) return;
         _hideItem.Text = hidden ? "显示桌宠 (Ctrl+`)" : "隐藏桌宠 (Ctrl+`)";
+    }
+
+    /// <summary>根据专注状态动态刷新"专注陪伴"菜单：文案显示当前阶段与剩余时间，并启用/禁用对应项。</summary>
+    public void SetFocusState(FocusPhase phase, TimeSpan remaining)
+    {
+        if (_disposed) return;
+        bool active = phase != FocusPhase.Idle;
+        _startFocusItem.Enabled = !active;   // 进行中不可再开专注
+        _startBreakItem.Enabled = !active;   // 短休仅空闲时可手动触发
+        _stopFocusItem.Enabled = active;     // 仅进行中可停止
+        _focusMenu.Text = phase switch
+        {
+            FocusPhase.Focus => "专注中 · 剩余 " + Format(remaining),
+            FocusPhase.Break => "短休中 · 剩余 " + Format(remaining),
+            _ => "专注陪伴"
+        };
+    }
+
+    /// <summary>把剩余时长格式化为 m:ss（用于菜单与气泡）。</summary>
+    private static string Format(TimeSpan t)
+    {
+        int total = (int)Math.Ceiling(t.TotalSeconds);
+        if (total < 0) total = 0;
+        return $"{total / 60}:{total % 60:D2}";
     }
 
     public void Dispose()

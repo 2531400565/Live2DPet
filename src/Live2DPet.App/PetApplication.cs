@@ -53,6 +53,10 @@ public sealed class PetApplication : IDisposable, IPetHost
     private PetInteractionService _interaction = null!;
     private PetScheduler? _scheduler;
 
+    // v1.3 番茄钟（专注陪伴）：纯状态机由定时器驱动，宿主只做协调与表现
+    private FocusSession _focus = null!;
+    private System.Windows.Forms.Timer? _focusTimer;
+
     private AppSettings _settings = new();
     // 已生效的昵称：与设置值比对检测"用户改了名字"，用于触发改名反应与刷新面板标题
     private string _appliedPetName = PetDialogue.DefaultPetName;
@@ -236,6 +240,9 @@ public sealed class PetApplication : IDisposable, IPetHost
         _tray.SetAutoStartChecked(_settings.AutoStart);
         _tray.SetExpressions(_expressions, _settings.Expression);
         _tray.ToggleHideRequested += (_, _) => Ui(ToggleHide);
+
+        // 10.6) 番茄钟（专注陪伴）：状态机 + 1s 驱动定时器 + 托盘菜单接线
+        InitFocus();
 
         // 10.5) 全局快捷键：一键隐藏/显示桌宠（清场/唤回，比托盘点更顺手），组合键可在设置里改
         RegisterHotkey();
@@ -913,7 +920,90 @@ public sealed class PetApplication : IDisposable, IPetHost
     public void SayAmbient(string text)
     {
         if (DndClock.IsActive(_settings, DateTime.Now)) return;
+        if (_focus != null && _focus.IsActive) return;   // 专注/短休期间：抑制所有随机环境台词（自动免打扰）
         Say(text);
+    }
+
+    // ---- 番茄钟（专注陪伴）协调层 ----
+    // FocusSession 是纯状态机，不碰 UI；下面这些方法是它在 WinForms 侧的"手脚"：
+    // 定时器驱动状态推进、把状态/事件翻译成气泡与成就，托盘只负责菜单与事件转发。
+
+    /// <summary>创建专注状态机、订阅其事件、接线托盘菜单、启动 1s 驱动定时器。</summary>
+    private void InitFocus()
+    {
+        _focus = new FocusSession();
+        _focus.PhaseChanged += OnFocusPhaseChanged;
+        _focus.ReminderDue += OnFocusReminder;
+        _focus.FocusCompleted += OnFocusCompleted;
+
+        _tray!.StartFocusRequested += (_, _) => StartFocus();
+        _tray.StartBreakRequested += (_, _) => StartBreak();
+        _tray.StopFocusRequested += (_, _) => StopFocus();
+
+        _focusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+        _focusTimer.Tick += (_, _) => OnFocusTick();
+        _focusTimer.Start();
+    }
+
+    /// <summary>每约 1s 推进状态机并刷新托盘剩余时间。仅在 UI 线程调用。</summary>
+    private void OnFocusTick()
+    {
+        if (_disposed || _focus == null) return;
+        _focus.Update(DateTime.Now);
+        _tray?.SetFocusState(_focus.Phase, _focus.Remaining);
+    }
+
+    private void StartFocus()
+    {
+        if (_focus == null || _focus.IsActive) return;
+        _focus.StartFocus(DateTime.Now);
+    }
+
+    private void StartBreak()
+    {
+        if (_focus == null || _focus.IsActive) return;
+        _focus.StartBreak(DateTime.Now);
+    }
+
+    private void StopFocus()
+    {
+        if (_focus == null || !_focus.IsActive) return;
+        _focus.Stop(DateTime.Now);
+    }
+
+    /// <summary>状态切换：刷新托盘菜单，并在进入/退出各阶段时给一句对应气泡。</summary>
+    private void OnFocusPhaseChanged(object? sender, FocusPhaseChangedEventArgs e)
+    {
+        _tray?.SetFocusState(e.To, _focus.Remaining);
+        switch (e.To)
+        {
+            case FocusPhase.Focus:
+                Say(PetDialogue.Pick(PetDialogue.FocusStartLines));
+                break;
+            case FocusPhase.Break:
+                Say(PetDialogue.Pick(PetDialogue.BreakStartLines));
+                break;
+            case FocusPhase.Idle:
+                if (e.From == FocusPhase.Break)
+                    Say(PetDialogue.Pick(PetDialogue.BreakDoneLines));
+                break;
+        }
+    }
+
+    /// <summary>每 5 分钟一次的专注提醒气泡（用 Say 而非 SayAmbient，确保专注期间照常弹出）。</summary>
+    private void OnFocusReminder(object? sender, FocusReminderEventArgs e)
+    {
+        Say(PetDialogue.Pick(PetDialogue.FocusReminderLines));
+    }
+
+    /// <summary>一次专注完成：累计次数 + 奖励 EXP + 检测专注类成就（含可能的升级/羁绊提示）。</summary>
+    private void OnFocusCompleted(object? sender, FocusCompletedEventArgs e)
+    {
+        _petState.TotalFocusSessions++;
+        _petState.AddExperience(e.RewardExp);
+        Say($"{PetDialogue.Pick(PetDialogue.FocusDoneLines)} 经验 +{e.RewardExp}");
+        _sound?.Play("levelup");
+        _interaction.CheckAndAnnounceAchievements();   // 解锁专注成就 + 发奖励 + 可能升级提示 + 保存
     }
 
     /// <summary>枚举模型里适合做"待机"的动作分组：优先 Idle，否则取所有非互动分组（Tap/TapBody/Flick…）。
@@ -1190,6 +1280,8 @@ public sealed class PetApplication : IDisposable, IPetHost
 
         _renderTimer?.Stop();
         _renderTimer?.Dispose();
+        _focusTimer?.Stop();
+        _focusTimer?.Dispose();
         _scheduler?.Dispose();
         _keyboard?.Dispose();
         _live2D?.Stop();
