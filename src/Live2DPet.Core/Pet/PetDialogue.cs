@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using Live2DPet.Core.Settings;
 
 namespace Live2DPet.Core.Pet;
 
@@ -32,7 +33,60 @@ public static class PetDialogue
         return text.Replace(NameToken, name, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static readonly string[] Greetings =
+    // ---- 台词自定义（v1.3）：内置台词快照 + 覆盖应用 ----
+    // 注意：下面 12 组台词字段已去掉 readonly，允许用户覆盖；本字典在静态构造函数
+    // （所有字段初始化完成后才执行）里拍下"出厂台词"并克隆保存，供回退/重新加载使用。
+    // 克隆是为了防止外部原地修改数组元素污染内置值。
+    private static readonly Dictionary<string, string[]> Builtin = new(StringComparer.OrdinalIgnoreCase);
+
+    static PetDialogue()
+    {
+        Builtin["Greeting"]  = (string[])Greetings.Clone();
+        Builtin["Pet"]       = (string[])TapReplies.Clone();
+        Builtin["Feed"]      = (string[])FeedReplies.Clone();
+        Builtin["Play"]      = (string[])PlayReplies.Clone();
+        Builtin["Bathe"]     = (string[])BatheReplies.Clone();
+        Builtin["Idle"]      = (string[])IdleLines.Clone();
+        Builtin["Wake"]      = (string[])WakeLines.Clone();
+        Builtin["Sleep"]     = (string[])SleepLines.Clone();
+        Builtin["Startle"]   = (string[])StartleLines.Clone();
+        Builtin["Break"]     = (string[])BreakReminders.Clone();
+        Builtin["Hungry"]    = (string[])HungryLines.Clone();
+        Builtin["HappyIdle"] = (string[])HappyIdleLines.Clone();
+    }
+
+    /// <summary>取某一组的内置台词副本（未知分组名返回空数组）。用于生成 dialogue.json 模板与回退。</summary>
+    public static string[] BuiltinFor(string? group)
+        => group != null && Builtin.TryGetValue(group, out var lines) ? (string[])lines.Clone() : Array.Empty<string>();
+
+    /// <summary>
+    /// 应用用户自定义台词：<b>逐组合并</b>——某组有效（至少一句非空）则用自定义，
+    /// 缺失 / 空数组 / 全是空白则回退该组内置台词。传入 null 等价于全部回退内置。
+    /// </summary>
+    public static void ApplyOverrides(DialogueOverrides? overrides)
+    {
+        Greetings      = Resolve(overrides?.Greeting,  "Greeting");
+        TapReplies     = Resolve(overrides?.Pet,       "Pet");
+        FeedReplies    = Resolve(overrides?.Feed,      "Feed");
+        PlayReplies    = Resolve(overrides?.Play,      "Play");
+        BatheReplies   = Resolve(overrides?.Bathe,     "Bathe");
+        IdleLines      = Resolve(overrides?.Idle,      "Idle");
+        WakeLines      = Resolve(overrides?.Wake,      "Wake");
+        SleepLines     = Resolve(overrides?.Sleep,     "Sleep");
+        StartleLines   = Resolve(overrides?.Startle,   "Startle");
+        BreakReminders = Resolve(overrides?.Break,     "Break");
+        HungryLines    = Resolve(overrides?.Hungry,    "Hungry");
+        HappyIdleLines = Resolve(overrides?.HappyIdle, "HappyIdle");
+    }
+
+    /// <summary>全部回退到内置台词（用户清空自定义 / 文件损坏时调用）。</summary>
+    public static void ResetToBuiltin() => ApplyOverrides(null);
+
+    // 自定义有效则用自定义，否则用内置副本（每次都返回新数组，避免共享可变状态）
+    private static string[] Resolve(string[]? custom, string group)
+        => DialogueOverrides.Sanitize(custom) ?? (string[])Builtin[group].Clone();
+
+    public static string[] Greetings =
     {
         "今天也要元气满满呀~",
         "你来啦，{name}等你好久了！",
@@ -40,7 +94,7 @@ public static class PetDialogue
         "今天想和我玩吗？"
     };
 
-    public static readonly string[] TapReplies =
+    public static string[] TapReplies =
     {
         "嘿嘿，别戳啦~",
         "好痒呀！",
@@ -89,7 +143,7 @@ public static class PetDialogue
     };
 
     // ---- 拖拽受惊吓：被拎起来瞬间的惊吓台词（与拖拽途中的 DragReplies 区分）----
-    public static readonly string[] StartleLines =
+    public static string[] StartleLines =
     {
         "呀！突然被拎起来啦~",
         "诶？要带我去哪~",
@@ -97,21 +151,21 @@ public static class PetDialogue
         "慢点慢点，我头晕~"
     };
 
-    public static readonly string[] FeedReplies =
+    public static string[] FeedReplies =
     {
         "好吃！最喜欢你了~",
         "啊呜啊呜，谢谢！",
         "吃饱啦，满足~"
     };
 
-    public static readonly string[] PlayReplies =
+    public static string[] PlayReplies =
     {
         "来玩吧来玩吧！",
         "好耶！再玩一会儿~",
         "嘿嘿，好玩！"
     };
 
-    public static readonly string[] BatheReplies =
+    public static string[] BatheReplies =
     {
         "洗香香啦~",
         "清爽多了！",
@@ -147,7 +201,7 @@ public static class PetDialogue
         "刚刚洗过，还是香香的~"
     };
 
-    public static readonly string[] HungryLines =
+    public static string[] HungryLines =
     {
         "肚子好饿呀，能喂我点吃的吗？",
         "咕噜咕噜…我饿啦~"
@@ -269,7 +323,7 @@ public static class PetDialogue
     public static string ChimeHalf(int hour) =>
         $"{hour} 点半啦，起来活动一下吧~";
 
-    public static readonly string[] BreakReminders =
+    public static string[] BreakReminders =
     {
         "坐很久啦，起来伸个懒腰、喝口水吧~",
         "该休息一下了，看看远处放松眼睛~",
@@ -277,7 +331,7 @@ public static class PetDialogue
     };
 
     // ---- 待机随机动作时的萌系碎碎念（不绑定具体动作，用来增加"活气"）----
-    public static readonly string[] IdleLines =
+    public static string[] IdleLines =
     {
         "打了个哈欠~",
         "发会儿呆…",
@@ -297,7 +351,7 @@ public static class PetDialogue
         "没什么力气呢，趴一会儿…"
     };
 
-    public static readonly string[] HappyIdleLines =
+    public static string[] HappyIdleLines =
     {
         "今天心情超好，嘿嘿~",
         "精神满满，想蹦跶一下~",
@@ -373,7 +427,7 @@ public static class PetDialogue
     }
 
     // ---- 离开检测：用户闲置时打盹，回来时唤醒 ----
-    public static readonly string[] SleepLines =
+    public static string[] SleepLines =
     {
         "zzz… 我先眯一会儿~",
         "（打盹中）呼…呼…",
@@ -381,7 +435,7 @@ public static class PetDialogue
         "好困… 先躺一会儿啦~"
     };
 
-    public static readonly string[] WakeLines =
+    public static string[] WakeLines =
     {
         "醒啦！你回来啦，{name}想死你啦~",
         "诶？你回来啦，{name}刚睡着呢~",

@@ -7,7 +7,7 @@ namespace Live2DPet.Core.Settings;
 
 /// <summary>
 /// 配置与养成数据的备份 / 还原（换机、重装、误删后的救命功能）。
-/// 打包为单个 zip，内容固定为 config 目录下的三个 json。
+/// 打包为单个 zip，内容固定为 config 目录下的四个 json（settings/petstate/parameter-mapping/dialogue）。
 ///
 /// 安全约束（防止"还原个备份把程序搞坏"）：
 /// - 只接受白名单文件名，压缩包里的其他条目一律忽略；
@@ -21,7 +21,8 @@ public static class ConfigBackup
     {
         "settings.json",
         "petstate.json",
-        "parameter-mapping.json"
+        "parameter-mapping.json",
+        "dialogue.json"   // 用户自定义台词：跟随备份/还原，还原后由 ReloadFromDisk 重新加载
     };
 
     private const long MaxEntryBytes = 8 * 1024 * 1024;   // 单个条目上限，防止畸形压缩包

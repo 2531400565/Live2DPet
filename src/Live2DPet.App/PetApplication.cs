@@ -109,6 +109,7 @@ public sealed class PetApplication : IDisposable, IPetHost
 
     private static string SettingsPath => Path.Combine(AppContext.BaseDirectory, "config", "settings.json");
     private static string PetStatePath => Path.Combine(AppContext.BaseDirectory, "config", "petstate.json");
+    private static string DialoguePath => Path.Combine(AppContext.BaseDirectory, "config", "dialogue.json");
 
     /// <summary>隐藏宿主窗，作为 WinForms 消息循环的锚点（供 Application.Run 使用）。</summary>
     public Form UiHost => _uiHost;
@@ -140,6 +141,9 @@ public sealed class PetApplication : IDisposable, IPetHost
         // 1) 加载设置 + 解析模型
         _settings = SettingsStore.Load(SettingsPath);
         _appliedPetName = NormalizePetName(_settings.PetName);   // 初始昵称先对齐，避免启动时误触发改名反应
+
+        // 1.5) 用户自定义台词（config/dialogue.json）：首次运行自动生成带 _comment 注释的模板
+        ReloadDialogue(announce: false);
 
         // 养成状态：加载 + 离线衰减 + 气泡窗口（均须在 UI 线程）
         _petState = PetStateStore.Load(PetStatePath);
@@ -222,6 +226,7 @@ public sealed class PetApplication : IDisposable, IPetHost
         _tray.ScreenshotRequested += (_, _) => Ui(TakeScreenshot);
         _tray.AboutRequested += (_, _) => ShowAbout();
         _tray.OpenLogsRequested += (_, _) => AppLog.OpenFolder();
+        _tray.ReloadDialogueRequested += (_, _) => ReloadDialogue(announce: true);
         _tray.UpdateRequested += (_, _) => ShowUpdate();
         _tray.BalloonClicked += (_, _) => ShowUpdate();
         _updateService.ShutdownRequested += () => Application.Exit();
@@ -1077,6 +1082,36 @@ public sealed class PetApplication : IDisposable, IPetHost
         _tray?.ShowBalloon("还原完成", $"已恢复 {count} 个配置文件~");
     }
 
+    /// <summary>
+    /// 重新读取 config/dialogue.json 并应用到 <see cref="PetDialogue"/>（热更新，无需重启）。
+    /// 文件首次不存在 → 自动生成带 <c>_comment</c> 注释的模板；缺失分组 → 用内置台词补齐；
+    /// 文件损坏 → 回退内置台词（不改动用户文件），并在气泡/日志里说明原因。
+    /// </summary>
+    /// <param name="announce">是否用气泡反馈结果：启动时静默，托盘手动触发时提示。</param>
+    private void ReloadDialogue(bool announce)
+    {
+        var overrides = DialogueOverrides.LoadOrCreate(DialoguePath, out string? error, out bool created);
+        overrides.Apply();
+
+        if (!string.IsNullOrEmpty(error))
+        {
+            AppLog.Warn("[dialogue] " + error);
+            if (announce) Say("台词文件好像写坏了，先用内置的凑合一下吧…（详情看日志）");
+            return;
+        }
+
+        if (created)
+        {
+            Log("dialogue: 首次运行，已生成台词模板 config/dialogue.json");
+            return;   // 首次生成不打扰用户
+        }
+
+        int n = overrides.Count;
+        Log($"dialogue: 自定义台词已加载（{n}/{DialogueOverrides.GroupNames.Length} 组）");
+        if (announce)
+            Say(n == 0 ? "台词已刷新，现在是内置台词~" : $"台词更新啦，{n} 组自定义生效~");
+    }
+
     /// <summary>从磁盘重新加载设置与养成状态并应用到运行时（备份还原后调用）。</summary>
     private void ReloadFromDisk()
     {
@@ -1084,6 +1119,7 @@ public sealed class PetApplication : IDisposable, IPetHost
         _petState = PetStateStore.Load(PetStatePath);
         _appliedPetName = NormalizePetName(_settings.PetName);   // 还原后昵称可能不同，直接对齐避免误报改名
         _scheduler?.ResetOnlineStamp();   // 新状态从此刻起算在线时长
+        ReloadDialogue(announce: false);  // 还原的备份里可能带着另一份 dialogue.json
         _clickThrough = _settings.ClickThrough;
         _keyboardEnabled = _settings.KeyboardInteraction;
         ApplySettings();
