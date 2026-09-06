@@ -249,12 +249,12 @@ public static class PetDialogue
         _ => "解锁新阶段啦~"
     };
 
-    /// <summary>每日签到气泡：根据连续天数/里程碑给不同热情度的台词。</summary>
+    /// <summary>每日签到气泡：根据连续天数/里程碑给不同热情度的台词（{name}=宠物昵称，Say 时统一替换）。</summary>
     public static string DailyLogin(LoginReport r)
     {
-        if (r.IsFirstDay) return "今天是我们认识的第一天，请多关照呀~";
-        if (r.Milestone) return $"连续第 {r.Streak} 天！一周达成，奖励加倍，超开心~";
-        return $"连续陪伴你第 {r.Streak} 天啦，今天也要一起哦~";
+        if (r.IsFirstDay) return "今天是你和{name}认识的第一天，请多关照呀~";
+        if (r.Milestone) return $"连续第 {r.Streak} 天！一周达成，{{name}}超开心，奖励加倍~";
+        return $"连续陪伴你第 {r.Streak} 天啦，{{name}}今天也要一起加油哦~";
     }
 
     /// <summary>亲密度提升提示。</summary>
@@ -281,8 +281,8 @@ public static class PetDialogue
     // ---- 时间问候 + 报时 + 休息提醒 ----
     private static readonly string[] MorningGreetings =
     {
-        "早上好呀，今天也要加油~",
-        "早安！记得吃早餐哦~"
+        "早安！{name}陪你开启元气满满的一天~",
+        "早上好呀，记得吃早餐哦，{name}会一直陪着你的~"
     };
     private static readonly string[] NoonGreetings =
     {
@@ -396,14 +396,14 @@ public static class PetDialogue
         "歇够啦，我们接着来~"
     };
 
-    /// <summary>离线"欢迎回来"：按离开时长给不同台词与热情度。</summary>
+    /// <summary>离线"欢迎回来"：按离开时长给不同台词与热情度（{name}=宠物昵称，Say 时统一替换）。</summary>
     public static string WelcomeBack(TimeSpan gap)
     {
         double h = gap.TotalHours;
-        if (h < 1) return "回来啦！才离开一小会儿，我就开始想你啦~";
-        if (h < 3) return $"欢迎回来~ 你离开了约 {(int)h} 小时，我可是乖乖等你的哦！";
-        if (h < 8) return $"好久不见！你去忙了 {(int)h} 小时，我超想你的~";
-        return "呜…你终于回来啦！我等了好久好久，要抱抱~";
+        if (h < 1) return "回来啦！才离开一小会儿，{name}就开始想你啦~";
+        if (h < 3) return $"欢迎回来~ 你离开了约 {(int)h} 小时，{{name}}可是乖乖等你的哦！";
+        if (h < 8) return $"好久不见！你去忙了 {(int)h} 小时，{{name}}超想你的~";
+        return "呜…你终于回来啦！{name}等了好久好久，要抱抱~";
     }
 
     /// <summary>按日期返回节日/生日问候；非特殊日期返回 null（交给常规问候）。

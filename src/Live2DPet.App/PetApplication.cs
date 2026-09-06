@@ -284,6 +284,7 @@ public sealed class PetApplication : IDisposable, IPetHost
         }
 
         // 启动问候 vs 离线欢迎回来 vs 每日签到 vs 节日/生日：节日/生日最优先；离开较久弹"欢迎回来"；否则今天刚签到弹签到气泡
+        _petState.LastLaunchTime = DateTime.UtcNow;   // 记录本次进程启动时刻（Welcome Back / 统计用）
         var sinceLast = DateTime.UtcNow - _petState.LastSeen;
         string? festival = PetDialogue.FestivalGreeting(DateTime.Now, _settings.Birthday);
         string greeting;
@@ -1326,8 +1327,9 @@ public sealed class PetApplication : IDisposable, IPetHost
 
         SaveWindowPosition();
         SettingsStore.Save(_settings, SettingsPath);
-        // 收尾：补齐最后一段在线时长（精确到秒），随后统一落盘
+        // 收尾：补齐最后一段在线时长（精确到秒），记退出时刻后统一落盘
         _scheduler?.FlushOnline();
+        _petState.LastExitTime = DateTime.UtcNow;
         PetStateStore.Save(_petState, PetStatePath);
 
         // 注销全局快捷键（宿主窗即将销毁）

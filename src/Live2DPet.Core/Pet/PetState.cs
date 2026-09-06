@@ -76,6 +76,12 @@ public sealed class PetState
     /// <summary>上次保存时间（UTC），用于离线衰减。</summary>
     public DateTime LastSeen { get; set; } = DateTime.UtcNow;
 
+    /// <summary>本次进程启动时刻（UTC）。Welcome Back / 统计用；旧存档缺省 MinValue（视为未知）。</summary>
+    public DateTime LastLaunchTime { get; set; } = DateTime.MinValue;
+
+    /// <summary>上次正常退出时刻（UTC）。用于估算"离开多久"；崩溃/强杀时保持上次值。</summary>
+    public DateTime LastExitTime { get; set; } = DateTime.MinValue;
+
     /// <summary>上次签到的本地日期（yyyy-MM-dd），用于判定"今天是否已签到"。</summary>
     public string LastLoginDay { get; set; } = "";
 
