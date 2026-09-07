@@ -163,6 +163,8 @@ public sealed class PetStatusForm : Form
             $"累计喂食：{_state.TotalFeeds} 次\n" +
             $"累计玩耍：{_state.TotalPlays} 次\n" +
             $"累计洗澡：{_state.TotalBaths} 次\n" +
+            $"累计专注：{_state.TotalFocusSessions} 个番茄\n" +
+            $"今日专注：{_state.FocusDoneToday} 个番茄\n" +
             $"累计启动：{_state.TotalLogins} 天\n" +
             $"累计陪伴：{(int)ts.TotalHours} 小时 {ts.Minutes} 分钟";
     }

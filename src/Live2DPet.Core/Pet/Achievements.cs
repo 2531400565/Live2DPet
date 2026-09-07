@@ -37,6 +37,8 @@ public static class AchievementCatalog
         new AchievementDef("streak_30", "长情陪伴", "最长连续陪伴 30 天", 30, 20),
         new AchievementDef("focus_1", "初试专注", "完成 1 次专注陪伴", 5, 5),
         new AchievementDef("focus_10", "专注达人", "累计专注陪伴 10 次", 15, 15),
+        new AchievementDef("focus_25", "心无旁骛", "累计专注陪伴 25 次", 20, 20),
+        new AchievementDef("focus_100", "专注大师", "累计专注陪伴 100 次", 50, 50),
     };
 
     /// <summary>判断某成就当前是否达成。</summary>
@@ -54,6 +56,8 @@ public static class AchievementCatalog
         "streak_30" => s.BestStreak >= 30,
         "focus_1" => s.TotalFocusSessions >= 1,
         "focus_10" => s.TotalFocusSessions >= 10,
+        "focus_25" => s.TotalFocusSessions >= 25,
+        "focus_100" => s.TotalFocusSessions >= 100,
         _ => false
     };
 }
