@@ -1,5 +1,6 @@
 namespace Live2DPet.Core.Settings;
 
+using System.Text.Json.Serialization;
 using Live2DPet.Core.Pet;
 
 /// <summary>
@@ -8,6 +9,10 @@ using Live2DPet.Core.Pet;
 /// </summary>
 public class AppSettings
 {
+    /// <summary>配置文件结构版本（序列化为 _version）。缺省按当前版本；未来升级以此为依据做迁移。</summary>
+    [JsonPropertyName("_version")]
+    public int Version { get; set; } = SettingsStore.CurrentVersion;
+
     /// <summary>宠物昵称（用于台词里的 {name} 占位替换）。空白时回退默认昵称。</summary>
     public string PetName { get; set; } = PetDialogue.DefaultPetName;
 
