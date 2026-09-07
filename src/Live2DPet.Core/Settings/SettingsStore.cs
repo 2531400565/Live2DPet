@@ -15,16 +15,16 @@ public static class SettingsStore
     public static AppSettings Load(string path)
     {
         var main = TryLoad(path, out bool corrupt);
-        if (main != null) return main;
+        if (main != null) return FocusConfig.Normalize(main);
 
         // 仅当主文件"存在但损坏"才回退上一版快照；缺失（被删除/首次运行）→ 默认，
         // 避免用户手动删除 settings.json 想重置时又被 prev 旧值"复活"。
         if (corrupt)
         {
             var prev = TryLoad(PrevPath(path), out _);
-            if (prev != null) return prev;
+            if (prev != null) return FocusConfig.Normalize(prev);
         }
-        return new AppSettings();
+        return FocusConfig.Normalize(new AppSettings());
     }
 
     public static void Save(AppSettings settings, string path)

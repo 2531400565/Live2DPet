@@ -42,6 +42,17 @@ public sealed class LoginReport
 }
 
 
+/// <summary>一次专注完成后的"今日进度"报告（由 RecordFocusCompleted 返回，供上层判断是否达成每日目标）。</summary>
+public sealed class FocusDailyReport
+{
+    /// <summary>是否跨入了新的一天（计数从 1 重新开始）。</summary>
+    public bool IsNewDay;
+
+    /// <summary>今天的已完成专注次数（含本次）。</summary>
+    public int CountToday;
+}
+
+
 /// <summary>
 /// 桌宠养成状态：好感度 / 饱食 / 心情 / 清洁 / 等级 / 经验。
 /// 纯逻辑（无引擎/Win32 依赖），负责计分、等级/亲密度计算、离线衰减。
@@ -105,6 +116,10 @@ public sealed class PetState
     public int TotalBaths { get; set; }
     /// <summary>累计完成的专注陪伴（番茄钟）次数；达成专注类成就的依据。</summary>
     public int TotalFocusSessions { get; set; }
+    /// <summary>最近一次专注完成的本地日期（yyyy-MM-dd），用于"今日已完成 N 个番茄"计数。</summary>
+    public string FocusDay { get; set; } = "";
+    /// <summary>当天已完成的专注次数（跨天由 RecordFocusCompleted 重置）。</summary>
+    public int FocusDoneToday { get; set; }
     /// <summary>累计在线时长（秒），用于统计面板。</summary>
     public long TotalOnlineSeconds { get; set; }
     /// <summary>已解锁成就的 id 列表（持久化）。</summary>
@@ -289,6 +304,25 @@ public sealed class PetState
         if (LoginStreak % 7 == 0) { aff += 10; exp += 5; r.Milestone = true; }
         r.RewardAffection = aff;
         r.RewardExp = exp;
+        return r;
+    }
+
+    // ---- 专注（每日计数）----
+    /// <summary>
+    /// 记录一次专注完成：跨天时重置"今日计数"并从 1 重新计；同一天累加。
+    /// 与 TotalFocusSessions（终身累计，成就依据）解耦。返回报告供上层判断是否达成每日目标。
+    /// </summary>
+    public FocusDailyReport RecordFocusCompleted(DateTime localNow)
+    {
+        var today = localNow.ToString("yyyy-MM-dd");
+        var r = new FocusDailyReport { IsNewDay = FocusDay != today };
+        if (r.IsNewDay)
+        {
+            FocusDay = today;
+            FocusDoneToday = 0;
+        }
+        FocusDoneToday++;
+        r.CountToday = FocusDoneToday;
         return r;
     }
 

@@ -64,6 +64,12 @@ public sealed class SettingsForm : Form
     private readonly CheckBox _autoHideCheck = new() { Left = 12, Top = 92, AutoSize = true, Text = "贴边后自动半隐藏" };
     private readonly CheckBox _updateCheck = new() { Left = 12, Top = 120, AutoSize = true, Text = "启动时自动检查更新" };
 
+    // ---- 专注（番茄钟）----
+    private readonly NumericUpDown _focusMinBox = new() { Left = 110, Top = 4, Width = 60, Minimum = 1, Maximum = 180 };
+    private readonly NumericUpDown _breakMinBox = new() { Left = 110, Top = 36, Width = 60, Minimum = 1, Maximum = 60 };
+    private readonly NumericUpDown _remindMinBox = new() { Left = 110, Top = 68, Width = 60, Minimum = 1, Maximum = 60 };
+    private readonly NumericUpDown _dailyGoalBox = new() { Left = 110, Top = 100, Width = 60, Minimum = 0, Maximum = 24 };
+
     private readonly Button _closeButton = new() { Text = "关闭", Left = 300, Top = 440, Width = 80, Height = 32 };
 
     // 隐藏/显示快捷键预设：(显示名, 修饰键, 虚拟键码)。修饰键=MOD_CONTROL/MOD_ALT/MOD_SHIFT 组合，key=0 表示禁用。
@@ -105,7 +111,8 @@ public sealed class SettingsForm : Form
         var pageInteraction = new TabPage("互动");
         var pageCare = new TabPage("养成");
         var pageRemind = new TabPage("提醒");
-        tabs.TabPages.AddRange(new[] { pageAppearance, pageInteraction, pageCare, pageRemind });
+        var pageFocus = new TabPage("专注");
+        tabs.TabPages.AddRange(new[] { pageAppearance, pageInteraction, pageCare, pageRemind, pageFocus });
         Controls.Add(tabs);
 
         // ===== 外观页 =====
@@ -169,6 +176,26 @@ public sealed class SettingsForm : Form
         pageRemind.Controls.Add(_snapCheck);
         pageRemind.Controls.Add(_autoHideCheck);
         pageRemind.Controls.Add(_updateCheck);
+
+        // ===== 专注页（番茄钟）=====
+        pageFocus.Controls.Add(new Label { Text = "专注时长（分）", Left = 8, Top = 8, AutoSize = true });
+        pageFocus.Controls.Add(_focusMinBox);
+        pageFocus.Controls.Add(new Label { Text = "短休时长（分）", Left = 8, Top = 40, AutoSize = true });
+        pageFocus.Controls.Add(_breakMinBox);
+        pageFocus.Controls.Add(new Label { Text = "提醒间隔（分）", Left = 8, Top = 72, AutoSize = true });
+        pageFocus.Controls.Add(_remindMinBox);
+        pageFocus.Controls.Add(new Label { Text = "每日目标（个）", Left = 8, Top = 104, AutoSize = true });
+        pageFocus.Controls.Add(_dailyGoalBox);
+        pageFocus.Controls.Add(new Label
+        {
+            Text = "0 = 不设每日目标。提醒间隔小于专注时长才会出现途中提醒。",
+            Left = 12, Top = 136, Width = 340, Height = 30, ForeColor = Color.Gray
+        });
+        pageFocus.Controls.Add(new Label
+        {
+            Text = "改动在空闲时生效，不会打断进行中的专注。",
+            Left = 12, Top = 166, Width = 340, Height = 20, ForeColor = Color.Gray
+        });
 
         Controls.Add(new Label
         {
@@ -235,6 +262,11 @@ public sealed class SettingsForm : Form
         _autoHideCheck.Checked = settings.AutoHide;
         _updateCheck.Checked = settings.CheckUpdateOnStartup;
 
+        _focusMinBox.Value = Math.Clamp(settings.FocusMinutes, 1, 180);
+        _breakMinBox.Value = Math.Clamp(settings.BreakMinutes, 1, 60);
+        _remindMinBox.Value = Math.Clamp(settings.ReminderMinutes, 1, 60);
+        _dailyGoalBox.Value = Math.Clamp(settings.DailyFocusGoal, 0, 24);
+
         UpdateLabels();
 
         // 事件（_loading 守卫避免初始化即写回）
@@ -290,6 +322,10 @@ public sealed class SettingsForm : Form
         _snapCheck.CheckedChanged += (_, _) => { if (_loading) return; _settings.SnapToEdge = _snapCheck.Checked; _apply(); };
         _autoHideCheck.CheckedChanged += (_, _) => { if (_loading) return; _settings.AutoHide = _autoHideCheck.Checked; _apply(); };
         _updateCheck.CheckedChanged += (_, _) => { if (_loading) return; _settings.CheckUpdateOnStartup = _updateCheck.Checked; _apply(); };
+        _focusMinBox.ValueChanged += (_, _) => { if (_loading) return; _settings.FocusMinutes = (int)_focusMinBox.Value; _apply(); };
+        _breakMinBox.ValueChanged += (_, _) => { if (_loading) return; _settings.BreakMinutes = (int)_breakMinBox.Value; _apply(); };
+        _remindMinBox.ValueChanged += (_, _) => { if (_loading) return; _settings.ReminderMinutes = (int)_remindMinBox.Value; _apply(); };
+        _dailyGoalBox.ValueChanged += (_, _) => { if (_loading) return; _settings.DailyFocusGoal = (int)_dailyGoalBox.Value; _apply(); };
         _resetButton.Click += (_, _) =>
         {
             if (_loading) return;

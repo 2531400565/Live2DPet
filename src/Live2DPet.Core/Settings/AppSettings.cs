@@ -100,4 +100,17 @@ public class AppSettings
 
     /// <summary>启动时自动检查更新（静默；发现新版本仅弹气泡提示，不自动下载）。</summary>
     public bool CheckUpdateOnStartup { get; set; } = true;
+
+    // ---- 番茄钟（专注陪伴）----
+    /// <summary>专注时长（分钟），范围由 FocusConfig 钳位到 1..180。</summary>
+    public int FocusMinutes { get; set; } = FocusSession.DefaultFocusMinutes;
+
+    /// <summary>短休时长（分钟），范围由 FocusConfig 钳位到 1..60。</summary>
+    public int BreakMinutes { get; set; } = FocusSession.DefaultBreakMinutes;
+
+    /// <summary>专注中气泡提醒间隔（分钟），范围由 FocusConfig 钳位到 1..60。大于专注时长则途中不提醒。</summary>
+    public int ReminderMinutes { get; set; } = FocusSession.DefaultReminderMinutes;
+
+    /// <summary>每日专注目标（个番茄）。0 = 关闭每日目标庆祝提示。</summary>
+    public int DailyFocusGoal { get; set; }
 }

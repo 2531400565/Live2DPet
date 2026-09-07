@@ -660,6 +660,7 @@ public sealed class PetApplication : IDisposable, IPetHost
         _tray?.SetKeyboardInteractionChecked(_settings.KeyboardInteraction);
         if (_sound != null) { _sound.Enabled = _settings.SoundEnabled; _sound.Volume = _settings.Volume; }
         ReapplyHotkey();   // 快捷键可能被改了，重新注册
+        RefreshFocusIfIdle();   // 番茄钟时长改动：空闲时立即重建生效；进行中由回到 Idle 时的重建接管
         SettingsStore.Save(_settings, SettingsPath);
     }
 
@@ -938,10 +939,7 @@ public sealed class PetApplication : IDisposable, IPetHost
     /// <summary>创建专注状态机、订阅其事件、接线托盘菜单、启动 1s 驱动定时器。</summary>
     private void InitFocus()
     {
-        _focus = new FocusSession();
-        _focus.PhaseChanged += OnFocusPhaseChanged;
-        _focus.ReminderDue += OnFocusReminder;
-        _focus.FocusCompleted += OnFocusCompleted;
+        RebuildFocusSession();   // 按当前设置创建状态机并订阅事件
 
         _tray!.StartFocusRequested += (_, _) => StartFocus();
         _tray.StartBreakRequested += (_, _) => StartBreak();
@@ -950,6 +948,23 @@ public sealed class PetApplication : IDisposable, IPetHost
         _focusTimer = new System.Windows.Forms.Timer { Interval = 1000 };
         _focusTimer.Tick += (_, _) => OnFocusTick();
         _focusTimer.Start();
+    }
+
+    /// <summary>按当前设置重建专注状态机并重新订阅事件。仅应在空闲时调用（进行中的专注/短休不打断）。</summary>
+    private void RebuildFocusSession()
+    {
+        var f = new FocusSession(_settings.FocusMinutes, _settings.BreakMinutes, _settings.ReminderMinutes);
+        f.PhaseChanged += OnFocusPhaseChanged;
+        f.ReminderDue += OnFocusReminder;
+        f.FocusCompleted += OnFocusCompleted;
+        _focus = f;
+    }
+
+    /// <summary>若番茄钟当前空闲，用最新设置重建状态机（时长改动即时生效）；进行中则保持原实例，等回到 Idle 时再重建。</summary>
+    private void RefreshFocusIfIdle()
+    {
+        if (_focus == null || _focus.IsActive) return;
+        RebuildFocusSession();
     }
 
     /// <summary>每约 1s 推进状态机并刷新托盘剩余时间。仅在 UI 线程调用。</summary>
@@ -993,6 +1008,7 @@ public sealed class PetApplication : IDisposable, IPetHost
             case FocusPhase.Idle:
                 if (e.From == FocusPhase.Break)
                     Say(PetDialogue.Pick(PetDialogue.BreakDoneLines));
+                RebuildFocusSession();   // 回到空闲：用最新设置重建（专注中改时长不打断，此时生效）
                 break;
         }
     }

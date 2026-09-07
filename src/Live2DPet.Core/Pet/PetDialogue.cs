@@ -396,6 +396,14 @@ public static class PetDialogue
         "歇够啦，我们接着来~"
     };
 
+    /// <summary>每日目标达成庆祝：当今日完成数首次达到设置的目标时弹（{name}=宠物昵称）。</summary>
+    public static readonly string[] DailyGoalLines =
+    {
+        "今日专注目标达成！{name}给你比心~",
+        "番茄目标全收！今天的你闪闪发光~",
+        "目标达成！快奖励自己一下，{name}也超开心~"
+    };
+
     /// <summary>离线"欢迎回来"：按离开时长给不同台词与热情度（{name}=宠物昵称，Say 时统一替换）。</summary>
     public static string WelcomeBack(TimeSpan gap)
     {
